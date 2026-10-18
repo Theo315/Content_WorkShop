@@ -1,0 +1,123 @@
+ .env.example                                     |   23 [32m+[m
+ .gitattributes                                   |   18 [32m+[m
+ .gitignore                                       |   32 [32m+[m
+ .python-version                                  |    1 [32m+[m
+ .vercelignore                                    |   18 [32m+[m
+ GIT-PACKAGE-MANIFEST.json                        |  614 [32m+++++++[m
+ README.md                                        |  107 [32m++[m
+ api/index.py                                     |    1 [32m+[m
+ assets/fonts/NotoSans-Bold.ttf                   |  Bin [31m0[m -> [32m575740[m bytes
+ assets/fonts/NotoSans-BoldItalic.ttf             |  Bin [31m0[m -> [32m555292[m bytes
+ assets/fonts/NotoSans-Italic.ttf                 |  Bin [31m0[m -> [32m552776[m bytes
+ assets/fonts/NotoSans-Regular.ttf                |  Bin [31m0[m -> [32m569208[m bytes
+ assets/fonts/OFL.txt                             |   94 [32m+[m
+ assets/sds/reference.pdf                         |  Bin [31m0[m -> [32m1716553[m bytes
+ assets/templates/asturcolor_demo.png             |  Bin [31m0[m -> [32m74977[m bytes
+ assets/templates/asturcolor_demo_car_mask.png    |  Bin [31m0[m -> [32m12458[m bytes
+ assets/templates/asturcolor_demo_marker_mask.png |  Bin [31m0[m -> [32m6952[m bytes
+ assets/templates/keytpl_575.png                  |  Bin [31m0[m -> [32m4835368[m bytes
+ assets/templates/keytpl_575_car_mask.png         |  Bin [31m0[m -> [32m30435[m bytes
+ assets/templates/keytpl_575_marker_mask.png      |  Bin [31m0[m -> [32m18059[m bytes
+ assets/templates/kodiaq_c9x.png                  |  Bin [31m0[m -> [32m6395015[m bytes
+ assets/templates/kodiaq_c9x_car_mask.png         |  Bin [31m0[m -> [32m27417[m bytes
+ assets/templates/kodiaq_c9x_marker_mask.png      |  Bin [31m0[m -> [32m18266[m bytes
+ assets/templates/kuga_575.png                    |  Bin [31m0[m -> [32m6176810[m bytes
+ assets/templates/kuga_575_car_mask.png           |  Bin [31m0[m -> [32m28498[m bytes
+ assets/templates/kuga_575_marker_mask.png        |  Bin [31m0[m -> [32m18059[m bytes
+ backend/__init__.py                              |    1 [32m+[m
+ backend/app.py                                   |  316 [32m++++[m
+ backend/history.py                               |  336 [32m++++[m
+ backend/models.py                                |  168 [32m++[m
+ backend/pdf_editor.py                            |  180 [32m++[m
+ backend/png.py                                   |  238 [32m+++[m
+ backend/preferences.py                           |  273 [32m+++[m
+ backend/sds.py                                   |  208 [32m+++[m
+ backend/security.py                              |   48 [32m+[m
+ backend/settings.py                              |   29 [32m+[m
+ backend/storage.py                               |  152 [32m++[m
+ docs/API.md                                      |   80 [32m+[m
+ docs/DEPLOY-VERCEL.md                            |  261 [32m+++[m
+ docs/GOAL-AUDIT.md                               |   41 [32m+[m
+ docs/REQUEST-FIXES.md                            |   40 [32m+[m
+ docs/SOURCE-ANALYSIS.md                          |   68 [32m+[m
+ docs/STORAGE-CORS.json                           |    9 [32m+[m
+ docs/STORAGE-LIFECYCLE.json                      |   16 [32m+[m
+ docs/UI-BRIEF.md                                 |   88 [32m+[m
+ docs/UI-REDESIGN.md                              |   45 [32m+[m
+ docs/VERIFICATION.md                             |   39 [32m+[m
+ frontend/index.html                              |    2 [32m+[m
+ frontend/package-lock.json                       | 2003 [32m++++++++++++++++++++++[m
+ frontend/package.json                            |   25 [32m+[m
+ frontend/src/App.tsx                             |  205 [32m+++[m
+ frontend/src/ConfirmationDialog.tsx              |   63 [32m+[m
+ frontend/src/ExportSheet.tsx                     |   48 [32m+[m
+ frontend/src/History.tsx                         |  107 [32m++[m
+ frontend/src/MaskEditor.tsx                      |  386 [32m+++++[m
+ frontend/src/PngTool.tsx                         |  771 [32m+++++++++[m
+ frontend/src/Results.tsx                         |  157 [32m++[m
+ frontend/src/SdsTool.tsx                         |  618 [32m+++++++[m
+ frontend/src/Settings.tsx                        |  169 [32m++[m
+ frontend/src/TimestampFields.tsx                 |   30 [32m+[m
+ frontend/src/api.ts                              |   91 [32m+[m
+ frontend/src/auto-reference.ts                   |   33 [32m+[m
+ frontend/src/components.tsx                      |  107 [32m++[m
+ frontend/src/exportArchive.ts                    |   38 [32m+[m
+ frontend/src/liquid-glass.css                    |  408 [32m+++++[m
+ frontend/src/main.tsx                            |   10 [32m+[m
+ frontend/src/mask-zoom.ts                        |   49 [32m+[m
+ frontend/src/minimal.css                         |  614 [32m+++++++[m
+ frontend/src/settings.css                        |   46 [32m+[m
+ frontend/src/styles.css                          | 1585 [32m+++++++++++++++++[m
+ frontend/src/theme-transition.css                |   50 [32m+[m
+ frontend/src/theme-wave.ts                       |   20 [32m+[m
+ frontend/src/timestamps.ts                       |   60 [32m+[m
+ frontend/tsconfig.json                           |    9 [32m+[m
+ frontend/vite.config.ts                          |    9 [32m+[m
+ package.json                                     |   13 [32m+[m
+ pytest.ini                                       |    3 [32m+[m
+ requirements-dev.txt                             |    3 [32m+[m
+ requirements.txt                                 |   10 [32m+[m
+ tests/fixtures/bmw-plate.png                     |  Bin [31m0[m -> [32m30659[m bytes
+ tests/test_auto_references.py                    |  387 [32m+++++[m
+ tests/test_b2_cors.py                            |  171 [32m++[m
+ tests/test_cloud_check.py                        |  211 [32m+++[m
+ tests/test_git_package.py                        |  206 [32m+++[m
+ tests/test_history.py                            |  227 [32m+++[m
+ tests/test_pipeline.py                           |  171 [32m++[m
+ tests/test_plate_contours.py                     |  298 [32m++++[m
+ tests/test_plate_text.py                         |  147 [32m++[m
+ tests/test_preferences.py                        |  168 [32m++[m
+ tests/test_storage.py                            |  138 [32m++[m
+ tools/check_cloud_storage.py                     |  247 [32m+++[m
+ tools/configure_b2_cors.py                       |  222 [32m+++[m
+ tools/dev.mjs                                    |   29 [32m+[m
+ tools/prepare_git.py                             |  265 [32m+++[m
+ tools/test-auto-reference.mjs                    |   48 [32m+[m
+ tools/test-mask-zoom.mjs                         |  100 [32m++[m
+ tools/test-theme-wave.mjs                        |   48 [32m+[m
+ tools/test-timestamps.mjs                        |   29 [32m+[m
+ vendor/hexph/.gitignore                          |    9 [32m+[m
+ vendor/hexph/README.md                           |  673 [32m++++++++[m
+ vendor/hexph/colors.example.csv                  |    5 [32m+[m
+ vendor/hexph/hexph/__init__.py                   |    3 [32m+[m
+ vendor/hexph/hexph/cli.py                        |  668 [32m++++++++[m
+ vendor/hexph/hexph/colors.py                     |  255 [32m+++[m
+ vendor/hexph/hexph/config.py                     |  196 [32m+++[m
+ vendor/hexph/hexph/errors.py                     |   19 [32m+[m
+ vendor/hexph/hexph/gui.py                        |  730 [32m++++++++[m
+ vendor/hexph/hexph/image_io.py                   |   41 [32m+[m
+ vendor/hexph/hexph/masking.py                    | 1612 [32m+++++++++++++++++[m
+ vendor/hexph/hexph/output_path.py                |  125 [32m++[m
+ vendor/hexph/hexph/plate_picker.py               |  198 [32m+++[m
+ vendor/hexph/hexph/plate_text.py                 |  390 [32m+++++[m
+ vendor/hexph/hexph/recolor.py                    |  214 [32m+++[m
+ vendor/hexph/hexph/sanitize.py                   |  106 [32m++[m
+ vendor/hexph/hexph/timestamps.py                 |  190 [32m++[m
+ vendor/hexph/recolor.py                          |   85 [32m+[m
+ vendor/hexph/requirements.txt                    |    9 [32m+[m
+ vendor/hexph/template_config.example.json        |   10 [32m+[m
+ vendor/hexph/tools/build_exe.py                  |   75 [32m+[m
+ vendor/hexph/tools/make_demo_template.py         |  157 [32m++[m
+ vendor/hexph/tools/selfcheck.py                  |  854 [32m+++++++++[m
+ vercel.json                                      |   26 [32m+[m
+ 122 files changed, 21048 insertions(+)

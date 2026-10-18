@@ -1,0 +1,9 @@
+[
+  {
+    "AllowedOrigins": ["https://YOUR-PROJECT.vercel.app"],
+    "AllowedMethods": ["GET", "PUT", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag", "Content-Length", "Content-Type"],
+    "MaxAgeSeconds": 3600
+  }
+]

@@ -1,0 +1,50 @@
+/* One complete new-theme snapshot expands from the theme button over the old one. */
+html[data-theme-transition="wave"]::view-transition,
+html[data-theme-transition="wave"]::view-transition-group(root),
+html[data-theme-transition="wave"]::view-transition-image-pair(root),
+html[data-theme-transition="wave"]::view-transition-old(root),
+html[data-theme-transition="wave"]::view-transition-new(root) {
+  pointer-events: none;
+}
+
+html[data-theme-transition="wave"]::view-transition-group(root) {
+  animation: none;
+}
+
+html[data-theme-transition="wave"]::view-transition-image-pair(root) {
+  isolation: auto;
+}
+
+html[data-theme-transition="wave"]::view-transition-old(root),
+html[data-theme-transition="wave"]::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+  opacity: 1;
+}
+
+html[data-theme-transition="wave"]::view-transition-old(root) { z-index: 1; }
+html[data-theme-transition="wave"]::view-transition-new(root) {
+  z-index: 2;
+  /* The same new-over-old reveal runs for BOTH target themes. CSS starts it
+     with the pseudo-tree, rather than attaching a WAAPI effect after ready. */
+  animation: theme-wave-reveal 620ms cubic-bezier(.4, 0, .2, 1) both;
+}
+
+@keyframes theme-wave-reveal {
+  from { clip-path: circle(0px at var(--theme-wave-x) var(--theme-wave-y)); }
+  to { clip-path: circle(var(--theme-wave-radius) at var(--theme-wave-x) var(--theme-wave-y)); }
+}
+
+/* Disable element-level colour tweens so the new snapshot has a uniform palette. */
+html[data-theme-transition="wave"] body,
+html[data-theme-transition="wave"] body *,
+html[data-theme-transition="wave"] body *::before,
+html[data-theme-transition="wave"] body *::after {
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html::view-transition-group(root),
+  html::view-transition-old(root),
+  html::view-transition-new(root) { animation: none !important; }
+}

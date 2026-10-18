@@ -1,0 +1,9 @@
+numpy>=1.26
+opencv-python>=4.9          # NOT opencv-python-headless: mask-editor needs the GUI
+pillow>=10.1
+
+# Optional, only for the SAM segmentation backend in mask-editor.
+# The flood-fill backend works without them.
+#   pip install torch segment-anything
+# and download a checkpoint, e.g. sam_vit_b_01ec64.pth (375 MB) or
+# sam_vit_h_4b8939.pth (2.4 GB) from https://github.com/facebookresearch/segment-anything

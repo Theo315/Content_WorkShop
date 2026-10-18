@@ -1,0 +1,10 @@
+{
+  "brand_name": "Asturcolor",
+  "model_name": "Ford Kuga",
+  "key_color": "#1E9E52",
+  "plate_box": [843, 1020, 1064, 1075],
+  "font_path": "C:/Windows/Fonts/arialn.ttf",
+  "font_size": 44,
+  "text_color": [20, 20, 20],
+  "plate_bg_color": "auto"
+}
