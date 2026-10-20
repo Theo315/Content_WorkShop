@@ -76,17 +76,15 @@ async def internal_error(request, exc):
 
 @app.get("/api/status")
 def status(request: Request):
-    try:
-        configured = not settings.IS_VERCEL or (len(settings.password()) >= 16 and len(settings.secret()) >= 32)
-    except RuntimeError:
-        configured = False
-    return dict(authenticated=security.authenticated(request), auth_required=bool(settings.password()) or settings.IS_VERCEL,
-                storage=settings.storage_mode(), ready=configured and settings.storage_mode() != "unconfigured",
+    return dict(authenticated=security.authenticated(request), auth_required=settings.auth_required(),
+                storage=settings.storage_mode(), ready=settings.access_configured() and settings.storage_mode() != "unconfigured",
                 max_upload_bytes=settings.MAX_UPLOAD)
 
 
 @app.post("/api/session")
 def login(data: m.Login, response: Response):
+    if settings.public_access():
+        return {"ok": True}
     if not settings.password() and settings.IS_VERCEL:
         raise HTTPException(503, "Налаштуйте APP_PASSWORD та SESSION_SECRET.")
     if not hmac.compare_digest(data.password.encode(), settings.password().encode()):

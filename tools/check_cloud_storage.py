@@ -69,7 +69,10 @@ def configuration(environ: Mapping[str, str] | None = None) -> CloudConfig:
     for name in ("S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"):
         if not env.get(name, "").strip():
             problems.append(f"{name}: required")
-    for name, minimum in (("APP_PASSWORD", 16), ("SESSION_SECRET", 32)):
+    auth_fields = [("SESSION_SECRET", 32)]
+    if env.get("APP_PUBLIC_ACCESS", "").strip().lower() not in ("true", "1"):
+        auth_fields.append(("APP_PASSWORD", 16))
+    for name, minimum in auth_fields:
         if len(env.get(name, "")) < minimum:
             problems.append(f"{name}: minimum {minimum} characters")
 

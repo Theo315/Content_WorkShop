@@ -16,6 +16,7 @@ from backend.models import PngRender
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCAL_STORAGE_DIR", str(tmp_path / "storage"))
     monkeypatch.delenv("APP_PASSWORD", raising=False)
+    monkeypatch.delenv("APP_PUBLIC_ACCESS", raising=False)
     monkeypatch.delenv("S3_BUCKET", raising=False)
     monkeypatch.setattr(settings, "IS_VERCEL", False)
     with TestClient(app) as client:

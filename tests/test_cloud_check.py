@@ -11,6 +11,7 @@ from tools import check_cloud_storage as check
 
 @pytest.fixture
 def configured_env(monkeypatch):
+    monkeypatch.delenv("APP_PUBLIC_ACCESS", raising=False)
     values = {
         "S3_BUCKET": "deployment-check-test", "S3_REGION": "auto",
         "S3_ENDPOINT_URL": "https://test.r2.cloudflarestorage.com",
@@ -141,6 +142,15 @@ def test_aws_default_requires_an_explicit_region(configured_env):
     configured_env["S3_REGION"] = "eu-central-1"
     config = check.configuration(configured_env)
     assert config.endpoint is None and config.region == "eu-central-1"
+
+
+def test_public_configuration_does_not_require_password(configured_env):
+    configured_env["APP_PUBLIC_ACCESS"] = "true"
+    configured_env.pop("APP_PASSWORD")
+    assert check.configuration(configured_env).bucket == configured_env["S3_BUCKET"]
+    configured_env["SESSION_SECRET"] = ""
+    with pytest.raises(check.ConfigurationError, match="SESSION_SECRET"):
+        check.configuration(configured_env)
 
 
 def test_explicit_cloud_exercises_large_signed_upload_and_cleans_exact_own_keys(configured_env, monkeypatch, capsys):

@@ -23,6 +23,21 @@ def password() -> str:
     return os.getenv("APP_PASSWORD", "")
 
 
+def public_access() -> bool:
+    return os.getenv("APP_PUBLIC_ACCESS", "").strip().lower() in ("true", "1")
+
+
+def auth_required() -> bool:
+    return not public_access() and (bool(password()) or IS_VERCEL)
+
+
+def access_configured() -> bool:
+    return not IS_VERCEL or (
+        len(os.getenv("SESSION_SECRET", "")) >= 32
+        and (public_access() or len(password()) >= 16)
+    )
+
+
 def storage_mode() -> str:
     if all(os.getenv(key) for key in ("S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY")):
         return "s3"

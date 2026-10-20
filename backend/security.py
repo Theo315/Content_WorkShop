@@ -18,6 +18,8 @@ def password_fingerprint():
 
 
 def authenticated(request: Request) -> bool:
+    if settings.public_access():
+        return True
     if not settings.password():
         return not settings.IS_VERCEL
     try:
@@ -28,9 +30,8 @@ def authenticated(request: Request) -> bool:
 
 
 def require_auth(request: Request):
-    import os
-    if settings.IS_VERCEL and (len(settings.password()) < 16 or len(os.getenv("SESSION_SECRET", "")) < 32):
-        raise HTTPException(503, "Налаштуйте APP_PASSWORD (від 16 символів) і SESSION_SECRET.")
+    if not settings.access_configured():
+        raise HTTPException(503, "Налаштуйте SESSION_SECRET (від 32 символів); для закритого режиму також APP_PASSWORD (від 16 символів).")
     if not authenticated(request):
         raise HTTPException(401, "Увійдіть у сервіс.")
     if settings.storage_mode() == "unconfigured":
