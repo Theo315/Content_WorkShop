@@ -182,9 +182,10 @@ def render(request, *, source_data=None):
         raise UserError("Код кольору порожній.")
     output = recolor_image(image, weights, target, color.metallic, options)
     warnings = []
+    label = plate_text(raw_config, code) if request.draw_plate else None
     if request.draw_plate and plate is not None:
         background = config.plate_bg_color or sample_plate_background(image, plate, config.key_color)
-        output, warning = draw_plate_text(output, plate, f"{config.brand_name} {code}".strip(), config.font_path,
+        output, warning = draw_plate_text(output, plate, label, config.font_path,
                                           None if raw_config.get("auto_font_size", True) else config.font_size,
                                           config.text_color, background, text_bounds=config.plate_box)
         if warning:
@@ -204,7 +205,25 @@ def render(request, *, source_data=None):
     preview = storage.save_bytes(encode(preview_img, preview_alpha), f"{code}-preview.png", "image/png")
     template_name = (TEMPLATES[request.template_id]["name"] if request.template_id in TEMPLATES and not custom
         else entry["name"] if entry else raw_config.get("model_name") or "Власний PNG")
-    return dict(file=file, preview=preview, metrics=metrics, warnings=warnings, template_name=template_name)
+    return dict(file=file, preview=preview, metrics=metrics, warnings=warnings, template_name=template_name,
+                plate_text=label)
+
+
+def plate_text(config, code):
+    """Compose only the plate label; colour codes and output names stay intact."""
+    mode = config.get("plate_text_mode", "brand_code")
+    brand = config.get("brand_name", "")
+    if mode == "code":
+        text = code
+    elif mode == "brand":
+        text = brand
+    elif mode == "custom":
+        text = config.get("plate_text", "")
+    elif mode == "blank":
+        text = ""
+    else:
+        text = f"{brand} {code}"
+    return " ".join(text.split())
 
 
 def create_mask(request):

@@ -16,9 +16,12 @@ import type { Result } from "./Results";
 import TimestampFields, { planLastWrittenAt, type TimestampConfig } from "./TimestampFields";
 import ExportSheet from "./ExportSheet";
 import { catalogWithConcurrentSaves, rememberSavedReference, referenceSaveWarnings, upsertReference, type AutoSavedReference } from "./auto-reference";
+import { plateLabel, type PlateTextMode } from "./plate-label";
 
 export type Config = {
   brand_name: string;
+  plate_text_mode?: PlateTextMode;
+  plate_text?: string;
   model_name?: string;
   plate_box?: number[] | null;
   key_color?: string | null;
@@ -49,6 +52,7 @@ type Render = {
   preview: FileRef;
   metrics: { body_delta_e: number; marker_delta_e: number | null };
   warnings: string[];
+  plate_text: string | null;
   auto_saved_template?: AutoSavedReference<Template>;
   reference_save_warning?: string;
 };
@@ -362,7 +366,7 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
             detail: `ΔE кузова ${r.metrics.body_delta_e.toFixed(2)}${r.metrics.marker_delta_e !== null ? ` · маркера ${r.metrics.marker_delta_e.toFixed(2)}` : ""}`,
             zipPath: paths[index],
             lastWrittenAt: writtenAt,
-            metadata: { color, metrics: r.metrics, batch_id: batchId, last_written_at: writtenAt },
+            metadata: { color, metrics: r.metrics, plate_text: r.plate_text, batch_id: batchId, last_written_at: writtenAt },
           },
         ]);
         setProgress(Math.round(((index + 1) / batch.length) * 100));
@@ -409,7 +413,7 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
             {referenceWarning && <p className="notice" role="alert">{referenceWarning}</p>}
             {source && (
               <details className="source-options">
-                <summary>Маски й номер</summary>
+                <summary>Маски</summary>
                 <div className="mask-controls">
                   <div>
                     <span className="mask-check">
@@ -482,28 +486,36 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
                   </button>
                   <p className="hint">HEX вихідного кузова</p>
                 </div>
-                <div className="plate-row">
-                  <label className="check-label">
-                    <input
-                      type="checkbox"
-                      checked={plate}
-                      onChange={(e) => setPlate(e.target.checked)}
-                    />
-                    Код на номері
-                  </label>
-                  <button onClick={() => setEditor("plate")}>
-                    <Crop size={15} />
-                    {config.plate_box ? "Область" : "Виділити номер"}
-                  </button>
-                </div>
-                {plate && !config.plate_box && (
-                  <p className="hint">
-                    Виділіть номерний знак, щоб наносити на нього код кольору.
-                  </p>
-                )}
               </details>
             )}
           </Panel>
+          {source && <Panel title="Номерний знак" className="plate-options" action={
+            <button onClick={() => setEditor("plate")}><Crop size={14} />{config.plate_box ? "Область" : "Виділити"}</button>
+          }>
+            <label className="check-label">
+              <input type="checkbox" checked={plate} onChange={e => setPlate(e.target.checked)} />
+              Змінювати напис
+            </label>
+            {plate ? <>
+              <Field label="Що писати на номері">
+                <select value={config.plate_text_mode ?? "brand_code"} onChange={e => setConfig({ ...config, plate_text_mode: e.target.value as PlateTextMode })}>
+                  <option value="brand_code">Бренд + код</option>
+                  <option value="code">Лише код</option>
+                  <option value="brand">Лише бренд · без коду</option>
+                  <option value="custom">Власний текст</option>
+                  <option value="blank">Порожній номер</option>
+                </select>
+              </Field>
+              {(!config.plate_text_mode || config.plate_text_mode === "brand_code" || config.plate_text_mode === "brand") &&
+                <Field label="Бренд на номері"><input value={config.brand_name} maxLength={120} placeholder="Будь-яка назва" onChange={e => setConfig({ ...config, brand_name: e.target.value })} /></Field>}
+              {config.plate_text_mode === "custom" && <Field label="Власний напис" hint="Саме цей текст, без автоматичного додавання бренду чи коду.">
+                <input value={config.plate_text ?? ""} maxLength={200} placeholder="Наприклад: MY PAINT" onChange={e => setConfig({ ...config, plate_text: e.target.value })} />
+              </Field>}
+              <div className="plate-label-preview"><span>Напис</span><output aria-label="Попередній текст номера">{plateLabel(config, colors.find(c => !c.error)?.code ?? "КОД") || "(порожній)"}</output></div>
+              {(!config.plate_text_mode || config.plate_text_mode === "brand_code" || config.plate_text_mode === "code") && <p className="hint">Код підставляється з кожного рядка списку кольорів.</p>}
+              {!config.plate_box && <p className="hint">Виділіть область номерного знака. Текст автоматично впишеться в неї.</p>}
+            </> : <p className="hint">Залишиться оригінальний напис із шаблону.</p>}
+          </Panel>}
           <Panel
             title="Кольори"
             action={

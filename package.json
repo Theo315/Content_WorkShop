@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node tools/dev.mjs",
     "build": "npm --prefix frontend run build",
-    "test:frontend": "node --experimental-strip-types --test tools/test-timestamps.mjs tools/test-theme-wave.mjs tools/test-mask-zoom.mjs tools/test-auto-reference.mjs",
+    "test:frontend": "node --experimental-strip-types --test tools/test-timestamps.mjs tools/test-theme-wave.mjs tools/test-mask-zoom.mjs tools/test-auto-reference.mjs tools/test-plate-label.mjs",
     "install:frontend": "npm --prefix frontend ci"
   },
   "engines": {"node": ">=22"}

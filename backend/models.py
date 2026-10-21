@@ -37,6 +37,8 @@ class Color(Model):
 
 class TemplateConfig(Model):
     brand_name: str = Field(default="", max_length=120)
+    plate_text_mode: Literal["brand_code", "code", "brand", "custom", "blank"] = "brand_code"
+    plate_text: str = Field(default="", max_length=200)
     model_name: Short | None = None
     plate_box: Box | None = None
     key_color: str | None = Field(default=None, max_length=7)

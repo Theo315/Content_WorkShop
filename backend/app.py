@@ -250,7 +250,7 @@ def render(data: m.PngRender):
                 result["warnings"].append(warning)
         del source_data
     return history.record("png", data.color.code, result,
-        dict(color=data.color.model_dump(), template=data.template_id or "custom", template_name=result["template_name"], metrics=result["metrics"]),
+        dict(color=data.color.model_dump(), template=data.template_id or "custom", template_name=result["template_name"], metrics=result["metrics"], plate_text=result["plate_text"]),
         f"ΔE кузова {result['metrics']['body_delta_e']:.2f}", batch=data.result_metadata())
 
 

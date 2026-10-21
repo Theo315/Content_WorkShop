@@ -275,6 +275,12 @@ fieldset:disabled .upload, fieldset:disabled .upload-link { opacity: .4; pointer
 .plate-row button { min-height: 30px; padding: 6px 8px; font-size: 11px; }
 .check-label { display: flex; align-items: center; gap: 7px; margin-bottom: 11px; color: var(--muted); font-size: 12px; line-height: 1.4; }
 .plate-row .check-label { margin: 0; }
+.plate-options > .field, .plate-options > .plate-label-preview { margin-top: 10px; }
+.plate-options .panel-header button { min-height: 28px; padding: 4px 7px; font-size: 11px; }
+.plate-options > .check-label { margin: 0; }
+.plate-label-preview { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.plate-label-preview > span { flex-shrink: 0; color: var(--muted); font-size: 11px; }
+.plate-label-preview > output { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 600; }
 .code-input, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.65 !important; }
 .color-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 11px; }
 .text-button { border: 0; background: transparent; color: var(--accent-text); min-height: 28px; padding: 3px 0; font-size: 11px; }

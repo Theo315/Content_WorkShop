@@ -70,6 +70,8 @@ def custom_request(client, name="Reference.png", model_name="  My reference  "):
         "marker_mask_token": marker["token"],
         "config": {
             "brand_name": "Asturcolor",
+            "plate_text_mode": "custom",
+            "plate_text": "Saved custom label",
             "model_name": model_name,
             "key_color": "#1E9E52",
             "plate_box": [35, 46, 73, 57],
