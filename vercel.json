@@ -2,6 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "fluid": true,
+  "regions": ["fra1"],
   "env": {
     "APP_PUBLIC_ACCESS": "true"
   },

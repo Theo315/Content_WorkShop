@@ -325,11 +325,13 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
       setResults([]);
       setStale(false);
       const refreshedReferences = new Set<string>();
+      const durations: number[] = [];
       for (let index = 0; index < batch.length; index++) {
         if (cancelled.current) break;
         const color = batch[index];
         const writtenAt = writtenTimes[index];
         setStatus(`Генеруємо ${color.code} · ${index + 1} з ${batch.length}`);
+        const startedAt = performance.now();
         const r = await post<Render>("/api/png/render", {
           ...input(),
           car_mask_token: car?.token,
@@ -345,6 +347,8 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
           zip_path: paths[index],
           last_written_at: writtenAt,
         });
+        const elapsed = (performance.now() - startedAt) / 1000;
+        durations.push(elapsed);
         if (r.auto_saved_template) {
           const saved = r.auto_saved_template;
           catalogSaves.current.set(saved.template.id, { revision: ++catalogRevision.current, template: saved.template });
@@ -363,10 +367,10 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
             ...r,
             warnings: referenceSaveWarnings(r.warnings, r.reference_save_warning),
             label: color.code,
-            detail: `ΔE кузова ${r.metrics.body_delta_e.toFixed(2)}${r.metrics.marker_delta_e !== null ? ` · маркера ${r.metrics.marker_delta_e.toFixed(2)}` : ""}`,
+            detail: `ΔE кузова ${r.metrics.body_delta_e.toFixed(2)}${r.metrics.marker_delta_e !== null ? ` · маркера ${r.metrics.marker_delta_e.toFixed(2)}` : ""} · ${elapsed.toFixed(2)} с`,
             zipPath: paths[index],
             lastWrittenAt: writtenAt,
-            metadata: { color, metrics: r.metrics, plate_text: r.plate_text, batch_id: batchId, last_written_at: writtenAt },
+            metadata: { color, metrics: r.metrics, plate_text: r.plate_text, generation_seconds: elapsed, batch_id: batchId, last_written_at: writtenAt },
           },
         ]);
         setProgress(Math.round(((index + 1) / batch.length) * 100));
@@ -375,7 +379,7 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
       setStatus(
         cancelled.current
           ? "Зупинено. Готові файли доступні для завантаження."
-          : "Генерацію завершено.",
+          : `Генерацію завершено · ${(durations.reduce((sum, value) => sum + value, 0) / durations.length).toLocaleString("uk-UA", { maximumFractionDigits: 2 })} с/фото.`,
       );
     } catch (e) {
       setError((e as Error).message);

@@ -3,6 +3,7 @@ from functools import wraps
 import hmac
 import logging
 import threading
+from time import perf_counter
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response, Query
@@ -231,12 +232,33 @@ def colors(data: m.Colors):
 
 
 @router.post("/png/render")
-def render(data: m.PngRender):
+def render(data: m.PngRender, response: Response):
+    started = perf_counter()
+    pending, timings = history.PendingResult(), {}
+    try:
+        result = render_png(data, pending, timings)
+        rendered = perf_counter()
+        result = history.record("png", data.color.code, result,
+            dict(color=data.color.model_dump(), template=data.template_id or "custom", template_name=result["template_name"], metrics=result["metrics"], plate_text=result["plate_text"]),
+            f"ΔE кузова {result['metrics']['body_delta_e']:.2f}", batch=data.result_metadata(), pending=pending)
+        timings.update(history=perf_counter() - rendered, total=perf_counter() - started)
+        response.headers["Server-Timing"] = ", ".join(f"{name};dur={seconds * 1000:.1f}" for name, seconds in timings.items())
+        return result
+    except Exception:
+        pending.cleanup()
+        raise
+
+
+def render_png(data, pending, timings):
+    queued = perf_counter()
     with compute_lock:
+        timings["queue"] = perf_counter() - queued
         # Reuse exactly the bytes rendered. Avoid a second S3 download for each
         # colour, and never save a different source if the upload gets replaced.
+        reading = perf_counter()
         source_data = storage.read_bytes(data.template_token) if data.template_token else None
-        result = png.render(data, source_data=source_data) if source_data is not None else png.render(data)
+        timings["source"] = perf_counter() - reading
+        result = png.render(data, source_data=source_data, output_store=pending.store, timings=timings)
         if data.template_token:
             try:
                 result["auto_saved_template"] = preferences.save_generated_reference(data, image_data=source_data)
@@ -249,9 +271,7 @@ def render(data: m.PngRender):
                 result["reference_save_warning"] = warning
                 result["warnings"].append(warning)
         del source_data
-    return history.record("png", data.color.code, result,
-        dict(color=data.color.model_dump(), template=data.template_id or "custom", template_name=result["template_name"], metrics=result["metrics"], plate_text=result["plate_text"]),
-        f"ΔE кузова {result['metrics']['body_delta_e']:.2f}", batch=data.result_metadata())
+    return result
 
 
 @router.post("/png/mask")

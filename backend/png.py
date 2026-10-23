@@ -3,6 +3,7 @@ from dataclasses import asdict
 import io
 import json
 import tempfile
+from time import perf_counter
 from pathlib import Path
 import cv2
 import numpy as np
@@ -126,7 +127,8 @@ def template_data(template_id=None, template_token=None, saved=None):
     raise UserError("Виберіть або завантажте PNG-шаблон.")
 
 
-def render(request, *, source_data=None):
+def render(request, *, source_data=None, output_store=None, timings=None):
+    started = perf_counter()
     saved = preferences.load()
     image, alpha = image_from_bytes(source_data if source_data is not None
                                    else template_data(request.template_id, request.template_token, saved))
@@ -156,6 +158,7 @@ def render(request, *, source_data=None):
         return None
     car_data = mask_data("car_mask", request.car_mask_token, 1)
     marker_data = mask_data("marker_mask", request.marker_mask_token, 2)
+    loaded = perf_counter()
     marker = mask_from_bytes(marker_data, (height, width)) if marker_data else np.zeros((height, width), np.uint8)
     if car_data:
         car = mask_from_bytes(car_data, (height, width))
@@ -198,11 +201,20 @@ def render(request, *, source_data=None):
         warnings.append("Metallic — візуальна імітація; перевірте результат.")
     if metrics["body_delta_e"] >= 5:
         warnings.append(f"Відхилення кольору ΔE={metrics['body_delta_e']:.2f}." + (" Очікувано для keep." if request.lightness_mode == "keep" else ""))
-    file = storage.save_bytes(encode(output, alpha), f"{code}.png", "image/png")
+    processed = perf_counter()
+    file_data = (encode(output, alpha), f"{code}.png", "image/png")
     scale = min(1, 900 / max(width, height))
     preview_img = cv2.resize(output, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
     preview_alpha = cv2.resize(alpha, (preview_img.shape[1], preview_img.shape[0]), interpolation=cv2.INTER_AREA) if alpha is not None else None
-    preview = storage.save_bytes(encode(preview_img, preview_alpha), f"{code}-preview.png", "image/png")
+    preview_data = (encode(preview_img, preview_alpha), f"{code}-preview.png", "image/png")
+    encoded = perf_counter()
+    if output_store:
+        file, preview = output_store(file_data, preview_data)
+    else:
+        file, preview = storage.save_bytes(*file_data), storage.save_bytes(*preview_data)
+    if timings is not None:
+        timings.update(read=loaded - started, process=processed - loaded, encode=encoded - processed,
+                       upload=perf_counter() - encoded)
     template_name = (TEMPLATES[request.template_id]["name"] if request.template_id in TEMPLATES and not custom
         else entry["name"] if entry else raw_config.get("model_name") or "Власний PNG")
     return dict(file=file, preview=preview, metrics=metrics, warnings=warnings, template_name=template_name,

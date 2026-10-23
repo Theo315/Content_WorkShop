@@ -4,6 +4,7 @@ import re
 import shutil
 import time
 import uuid
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from fastapi import HTTPException
@@ -15,6 +16,43 @@ PREFIX = "history/index/"
 BATCH_PREFIX = "history/batch-members/"
 SNAPSHOT_MAX_BYTES = 512_000
 ID = re.compile(r"^[0-9]{16}-[0-9a-f]{32}$")
+_UNSET = object()
+log = logging.getLogger("content-tools")
+
+
+class PendingResult:
+    """Write PNG outputs once, directly to their final private history keys."""
+    def __init__(self):
+        self.entry_id = f"{9999999999999999 - int(now() * 1000):016d}-{uuid.uuid4().hex}"
+        self.keys = []
+        self.committed = False
+
+    def store(self, file, preview):
+        files = [(role, value) for role, value in (("result", file), ("preview", preview))]
+        self.keys = [f"history/files/{self.entry_id}/{role}/{storage.clean_name(value[1])}" for role, value in files]
+        def save(index):
+            data, name, content_type = files[index][1]
+            return storage.save_bytes(data, name, content_type, asset_key=self.keys[index])
+        if settings.storage_mode() == "s3":
+            # boto3 clients are thread-safe; encoding/MuPDF never run in these workers.
+            storage.s3()
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                return tuple(pool.map(save, range(2)))
+        return tuple(save(index) for index in range(2))
+
+    def cleanup(self):
+        if self.committed:
+            return
+        # Only this failed generation's newly allocated UUID keys, never inputs
+        # or an existing manifest. All upload workers have joined before cleanup.
+        for key in self.keys:
+            try:
+                if settings.storage_mode() == "s3":
+                    storage.s3().delete_object(Bucket=storage.bucket(), Key=key)
+                else:
+                    (storage.local_root() / key).unlink(missing_ok=True)
+            except Exception:
+                log.exception("Failed to clean up uncommitted generation output")
 
 
 def now():
@@ -24,6 +62,8 @@ def now():
 def archive_ref(ref, entry_id, role):
     value = security.read_file_token(ref["token"])
     key = f"history/files/{entry_id}/{role}/{value['name']}"
+    if value["key"] == key and not value.get("writable"):
+        return value
     if settings.storage_mode() == "s3":
         storage.s3().copy_object(Bucket=storage.bucket(), Key=key,
             CopySource={"Bucket": storage.bucket(), "Key": value["key"]})
@@ -35,24 +75,27 @@ def archive_ref(ref, entry_id, role):
                 content_type=value["content_type"], writable=False)
 
 
-def record(kind, label, result, metadata, detail="", batch=None):
+def record(kind, label, result, metadata, detail="", batch=None, pending=None):
     created = now()
     batch = dict(batch or {})
     batch.setdefault("last_written_at", datetime.fromtimestamp(created, timezone.utc).isoformat())
     batch_id = batch.get("batch_id")
+    snapshot = None
     if batch_id:
         # Membership objects are immutable. There is no counter or shared index
         # that concurrent requests could overwrite.
         existing = object_keys(BATCH_PREFIX + batch_id + "/")
         if existing:
-            first_id = member_entry_id(existing[0])
-            first = read_manifest(first_id)
+            snapshot = read_snapshot(existing)
+            first = snapshot["summary"]["items"][0] if snapshot else read_manifest(member_entry_id(existing[0]))
+            if first["expires_at"] <= created:
+                raise HTTPException(410, "Строк зберігання результату завершився (30 днів).")
             if first["kind"] != kind or first.get("batch_size") != batch.get("batch_size"):
                 raise HTTPException(409, "Ідентифікатор пакета вже використаний для іншого списку.")
         if len(existing) >= 200:
             raise HTTPException(422, "Максимум 200 результатів у пакеті.")
     # Lexical S3 listing naturally returns newest entries first.
-    entry_id = f"{9999999999999999 - int(created * 1000):016d}-{uuid.uuid4().hex}"
+    entry_id = pending.entry_id if pending else f"{9999999999999999 - int(created * 1000):016d}-{uuid.uuid4().hex}"
     file = archive_ref(result["file"], entry_id, "result")
     preview_ref = result.get("preview") or next(iter(result.get("previews", [])), None)
     preview = archive_ref(preview_ref, entry_id, "preview") if preview_ref else None
@@ -62,8 +105,10 @@ def record(kind, label, result, metadata, detail="", batch=None):
     # Commit the completed result only after all output files have been copied.
     payload = json.dumps(manifest, ensure_ascii=False).encode()
     storage.save_bytes(payload, "record.json", "application/json", asset_key=PREFIX + entry_id + ".json")
+    if pending:
+        pending.committed = True
     if batch_id:
-        snapshot = build_snapshot(batch_id, existing, manifest)
+        snapshot = build_snapshot(batch_id, existing, manifest, saved=snapshot)
         snapshot_bytes = json.dumps(snapshot, ensure_ascii=False).encode()
         if len(snapshot_bytes) > SNAPSHOT_MAX_BYTES:
             raise HTTPException(500, "Пакет перевищив ліміт обсягу індексу історії.")
@@ -217,8 +262,9 @@ def search_value(value):
         *value["metadata"].get("color", {}).values()))[:499]
 
 
-def build_snapshot(batch_id, existing_keys, manifest):
-    saved = read_snapshot(existing_keys)
+def build_snapshot(batch_id, existing_keys, manifest, saved=_UNSET):
+    if saved is _UNSET:
+        saved = read_snapshot(existing_keys)
     if saved:
         previous = saved["summary"]
         summary = summarize(batch_id, [*previous["items"], manifest], preview_limit=3)

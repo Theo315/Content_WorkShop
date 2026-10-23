@@ -64,9 +64,22 @@ def _core_pixels(weight: np.ndarray, threshold: float = 0.9) -> np.ndarray:
 
 def measure_lab(image_bgr: np.ndarray, weight: np.ndarray, threshold: float = 0.9) -> np.ndarray:
     """Median LAB of the masked area — matches what a pipette on a panel reads."""
+    bounds = _weight_bounds(weight) if threshold > 0 else None
+    if bounds is not None:
+        y1, y2, x1, x2 = bounds
+        image_bgr, weight = image_bgr[y1:y2, x1:x2], weight[y1:y2, x1:x2]
     lab = bgr_to_lab(image_bgr)
     core = _core_pixels(weight, threshold)
     return np.median(lab[core], axis=0).astype(np.float32)
+
+
+def _weight_bounds(weight: np.ndarray):
+    """Include every nonzero feather pixel; align columns for identical SIMD math."""
+    rows = np.flatnonzero(np.any(weight != 0, axis=1))
+    if not rows.size:
+        return None
+    columns = np.flatnonzero(np.any(weight != 0, axis=0))
+    return int(rows[0]), int(rows[-1]) + 1, int(columns[0]) // 32 * 32, min(weight.shape[1], (int(columns[-1]) // 32 + 1) * 32)
 
 
 def _match_lightness(
@@ -145,14 +158,19 @@ def recolor_image(
     layers = [weights] if isinstance(weights, np.ndarray) else list(weights)
 
     target = hex_to_lab(target_hex)
-    lab = bgr_to_lab(image_bgr)
     # Composite in BGR, not LAB: outside the masks (weight == 0) the result stays
     # bit-identical to the template — no ±1 drift on glass/tires/lights.
     merged = image_bgr.astype(np.float32)
 
     for weight in layers:
-        if not weight.any():
+        bounds = _weight_bounds(weight)
+        if bounds is None:
             continue
+        y1, y2, x1, x2 = bounds
+        # Statistics and LAB transforms only need the masked region. Keep the
+        # float composite across overlapping layers: no intermediate rounding.
+        lab = bgr_to_lab(image_bgr[y1:y2, x1:x2])
+        weight = weight[y1:y2, x1:x2]
         core = _core_pixels(weight)
         painted = lab.copy()
         painted[:, :, 1] = target[1]
@@ -164,7 +182,8 @@ def recolor_image(
         if metallic:
             painted = _metallic_flop(painted, painted[:, :, 0], core, options)
         blend = weight[:, :, None]
-        merged = merged + (lab_to_bgr(painted).astype(np.float32) - merged) * blend
+        region = merged[y1:y2, x1:x2]
+        merged[y1:y2, x1:x2] = region + (lab_to_bgr(painted).astype(np.float32) - region) * blend
 
     return np.rint(np.clip(merged, 0, 255)).astype(np.uint8)
 
