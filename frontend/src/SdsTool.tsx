@@ -344,7 +344,7 @@ export default function SdsTool({ maxUpload, settingsVersion }: { maxUpload: num
                       compact
                     />
                     <p className="hint">
-                      Сумісний SDS, 41 стор. · до {Math.round(maxUpload / 1024 / 1024)} МБ.
+                      SDS: 41 стор. або 3-Marker: 49 стор. · до {Math.round(maxUpload / 1024 / 1024)} МБ.
                       Для інших PDF — «Заміна тексту».
                     </p>
                     {customReference && (

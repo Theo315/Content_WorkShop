@@ -109,8 +109,11 @@ def title_regions(doc):
 
 
 def preflight(doc):
+    if doc.page_count == 49:
+        from . import sds_three_marker
+        return sds_three_marker.preflight(doc)
     if doc.page_count != 41:
-        raise SDSError(f"Цей генератор працює з 41-сторінковим еталоном; отримано {doc.page_count}.")
+        raise SDSError(f"Потрібен сумісний еталон на 41 сторінку або 3-Marker на 49 сторінок; отримано {doc.page_count}.")
     text = "\n".join(page.get_text() for page in doc)
     for date in REQUIRED_DATES:
         if date not in text:
@@ -156,6 +159,11 @@ def insert_title(page, title, font, main=True):
 
 
 def validate_output(data, reference_data, title):
+    with open_pdf(reference_data) as reference:
+        three_marker = reference.page_count == 49
+    if three_marker:
+        from . import sds_three_marker
+        return sds_three_marker.validate_output(data, reference_data, title)
     with open_pdf(data) as doc, open_pdf(reference_data) as source:
         if doc.page_count != source.page_count:
             raise SDSError("Перевірка результату: кількість сторінок змінилася.")
@@ -182,6 +190,11 @@ def validate_output(data, reference_data, title):
 def generate(title, reference_data=None):
     validate_title(title)
     reference_data = reference_data or REFERENCE.read_bytes()
+    with open_pdf(reference_data) as reference:
+        three_marker = reference.page_count == 49
+    if three_marker:
+        from . import sds_three_marker
+        return sds_three_marker.generate(title, reference_data)
     with open_pdf(reference_data) as doc:
         preflight(doc)
         font = fitz.Font(fontfile=str(FONT))

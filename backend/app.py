@@ -296,11 +296,12 @@ def generate_sds(data: m.SDSGenerate):
     with compute_lock:
         reference_data = storage.read_bytes(data.reference_token) if data.reference_token else preferences.default_pdf_bytes()
         result, validation = sds.generate(data.item.title, reference_data)
-        previews = [sds.render_page(result, index) for index in (0, 8, 23, 29)] if data.render_previews else []
+        preview_indices = (0, 1, 8, 31) if validation["pages"] == 49 else (0, 8, 23, 29)
+        previews = [sds.render_page(result, index) for index in preview_indices] if data.render_previews else []
     name = sds.filename(data.item.code, data.item.brand, data.item.color)
     file = storage.save_bytes(result, name, "application/pdf")
     preview_refs = [storage.save_bytes(image, f"{data.item.code}-p{index}.png", "image/png")
-                    for image, index in zip(previews, (1, 9, 24, 30))]
+                    for image, index in zip(previews, (index + 1 for index in preview_indices))]
     return history.record("sds", data.item.code or data.item.title,
         dict(file=file, previews=preview_refs, validation=validation),
         dict(item=data.item.model_dump(), validation=validation), f"{validation['pages']} стор. · SDS", batch=data.result_metadata())

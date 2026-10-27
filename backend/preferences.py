@@ -82,7 +82,7 @@ def reference(value=None):
     custom = value.get("sds_reference")
     available = bool(custom) or not value.get("sds_reference_disabled", False)
     return dict(file=(storage.make_ref(**custom) if custom else storage.asset_ref(sds.REFERENCE)) if available else None,
-        available=available, pages=41 if available else 0, custom=bool(custom), title_template=value.get("sds_title_template", sds.DEFAULT_TITLE),
+        available=available, pages=value.get("sds_reference_pages", 41) if custom and available else 41 if available else 0, custom=bool(custom), title_template=value.get("sds_title_template", sds.DEFAULT_TITLE),
         description="Типовий SDS-еталон. Генератор змінює лише назви товарів.")
 
 
@@ -110,11 +110,14 @@ def update_pdf(token=None):
         data = storage.read_bytes(token)
         with sds.open_pdf(data) as doc:
             sds.preflight(doc)
+            pages = doc.page_count
         source = security.read_file_token(token)
         value["sds_reference"] = store_file(data, source["name"], "application/pdf", uuid.uuid4().hex)
+        value["sds_reference_pages"] = pages
         value.pop("sds_reference_disabled", None)
     else:
         value.pop("sds_reference", None)
+        value.pop("sds_reference_pages", None)
         value["sds_reference_disabled"] = True
     save(value)
     remove_files([old])
@@ -124,6 +127,7 @@ def update_pdf(token=None):
 def restore_pdf():
     value = load()
     old = value.pop("sds_reference", None)
+    value.pop("sds_reference_pages", None)
     value.pop("sds_reference_disabled", None)
     save(value)
     remove_files([old])
