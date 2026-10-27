@@ -8,6 +8,7 @@ from collections import Counter
 from dataclasses import dataclass, asdict
 import re
 import unicodedata
+import uuid
 import pymupdf as fitz
 from .settings import ASSETS, MAX_ITEMS
 
@@ -46,13 +47,15 @@ def filename(code, brand, color):
 def parse_items(mode, brand="", title_template="", values_text="", exact_text=""):
     items = []
     if mode == "template":
-        brand, title_template = brand.strip(), title_template.strip()
+        brand, title_template = normalized(brand), normalized(title_template)
         if not brand or not title_template:
             raise SDSError("Вкажіть марку автомобіля та шаблон назви.")
         if not any(p in title_template for p in ("{VALUE}", "{CODE}", "{COLOR}", "{BRAND}")):
             raise SDSError("Шаблон має містити {VALUE}, {CODE}, {COLOR} або {BRAND}.")
         for number, value in enumerate(values_text.splitlines(), 1):
-            value = value.strip()
+            # Excel/Sheets paste uses tabs and NBSP. A PDF text operator cannot
+            # safely render those as spaces: embedded fonts may emit NUL glyphs.
+            value = normalized(value)
             if not value:
                 continue
             parts = value.split(maxsplit=1)
@@ -67,7 +70,7 @@ def parse_items(mode, brand="", title_template="", values_text="", exact_text=""
         for number, line in enumerate(exact_text.splitlines(), 1):
             if not line.strip():
                 continue
-            parts = [part.strip() for part in line.split("|", 3)]
+            parts = [normalized(part) for part in line.split("|", 3)]
             if len(parts) != 4 or not all(parts):
                 raise SDSError(f"Рядок {number}: формат CODE | BRAND | COLOR | TITLE.")
             code, brand, color, title = parts
@@ -149,12 +152,12 @@ def wrap_title(title, font, width, initial_size):
     raise SDSError("Назва не вміщується у три рядки. Скоротіть її.")
 
 
-def insert_title(page, title, font, main=True):
+def insert_title(page, title, font, main=True, fontname="SDSNoto"):
     lines, size = wrap_title(title, font, 413.2201 if main else 363.3393,
                             9.013999938964844 if main else 7.908999919891357)
     for line, baseline in zip(lines, MAIN_BASELINES if main else EXTRA_BASELINES):
         x = 349.41905975341797 - font.text_length(line, fontsize=size) / 2 if main else 195.87399291992188
-        page.insert_text((x, baseline), line, fontname="SDSNoto", fontfile=str(FONT), fontsize=size, color=(0, 0, 0), overlay=True)
+        page.insert_text((x, baseline), line, fontname=fontname, fontfile=str(FONT), fontsize=size, color=(0, 0, 0), overlay=True)
     return size
 
 
@@ -188,6 +191,8 @@ def validate_output(data, reference_data, title):
 
 
 def generate(title, reference_data=None):
+    # Also sanitize direct /generate callers, not only /parse results.
+    title = normalized(title)
     validate_title(title)
     reference_data = reference_data or REFERENCE.read_bytes()
     with open_pdf(reference_data) as reference:
@@ -198,15 +203,16 @@ def generate(title, reference_data=None):
     with open_pdf(reference_data) as doc:
         preflight(doc)
         font = fitz.Font(fontfile=str(FONT))
+        fontname = "SDSNoto" + uuid.uuid4().hex
         for index in range(23):
             page = doc[index]
             page.add_redact_annot(MAIN_RECT, fill=(1, 1, 1))
             if index == 0:
                 page.add_redact_annot(EXTRA_RECT, fill=(1, 1, 1))
             page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
-            insert_title(page, title, font)
+            insert_title(page, title, font, fontname=fontname)
             if index == 0:
-                insert_title(page, title, font, main=False)
+                insert_title(page, title, font, main=False, fontname=fontname)
         doc.subset_fonts()
         data = doc.tobytes(garbage=4, deflate=True, clean=True)
     return data, validate_output(data, reference_data, title)

@@ -5,6 +5,7 @@ Unknown layouts fail closed instead of reusing the legacy 41-page rectangles.
 """
 from dataclasses import dataclass
 import re
+import uuid
 
 import pymupdf as fitz
 
@@ -146,6 +147,7 @@ def validate_output(data, reference_data, title):
 
 
 def generate(title, reference_data):
+    title = normalized(title)
     validate_title(title)
     brand, value = identity(title)
     with open_pdf(reference_data) as doc:
@@ -155,13 +157,17 @@ def generate(title, reference_data):
         # In a same-make colour batch the explanatory primer lines need no edit.
         placements = [(plan, fitted(plan)) for plan in replacements
                       if canonical(doc[plan.page].get_text(clip=plan.source)) != canonical(plan.text)]
+        # A previously generated reference has subset fonts under our old
+        # resource names. Reusing those names makes MuPDF ignore fontfile and
+        # emit missing glyphs for the next colour. Bind fresh, complete fonts.
+        font_tag = uuid.uuid4().hex
         for index, page in enumerate(doc):
             current = [(plan, fit) for plan, fit in placements if plan.page == index]
             for plan, _ in current:
                 page.add_redact_annot(plan.source, fill=(1, 1, 1), cross_out=False)
             page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
             for plan, (font_path, size, x, baseline) in current:
-                page.insert_text((x, baseline), plan.text, fontname="ThreeMarkerBold" if plan.bold else "ThreeMarkerRegular",
+                page.insert_text((x, baseline), plan.text, fontname=("ThreeMarkerBold" if plan.bold else "ThreeMarkerRegular") + font_tag,
                                  fontfile=str(font_path), fontsize=size, color=(0, 0, 0), overlay=True)
         doc.subset_fonts()
         data = doc.tobytes(garbage=4, deflate=True)

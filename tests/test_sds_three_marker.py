@@ -46,6 +46,16 @@ def test_placeholder_parser_is_not_the_problem():
     assert item["title"] == "Asturcolor 3-Marker Car Touch-up Kit for BMW (300 Alpine White)"
 
 
+@pytest.mark.parametrize("separator", ["\t", "\t\t", "\u00a0", "\u2003", "   "])
+def test_spreadsheet_whitespace_is_normalized_before_pdf_insertion(separator):
+    item = sds.parse_items("template", " BMW\t", "Asturcolor 3-Marker Car Touch-up Kit for {BRAND} ({VALUE})",
+                           f"475{separator}Black{separator}Sapphire Metallic")[0]
+    assert item["title"] == "Asturcolor 3-Marker Car Touch-up Kit for BMW (475 Black Sapphire Metallic)"
+    assert item["color"] == "Black Sapphire Metallic"
+    exact = sds.parse_items("exact", exact_text=f"475 | BMW | Black{separator}Sapphire Metallic | {item['title'].replace('475 ', '475' + separator)}")[0]
+    assert exact["title"] == item["title"] and exact["color"] == item["color"]
+
+
 @pytest.mark.parametrize("brand,value", [("BMW", "300 Alpine White"), ("Audi", "LY9B Brilliant Black"),
                                         ("Mercedes-Benz", "040 Black")])
 def test_49_page_replacements_preserve_safety_data(reference, brand, value):
@@ -73,6 +83,67 @@ def test_brand_detection_is_not_hardcoded_to_bmw():
         text = "\n".join(page.get_text() for page in doc)
         assert "Mercedes-Benz" not in text and "040 Black" not in text
         assert "The Audi code" in text and "Audi colour names" in text
+
+
+def test_direct_generator_cannot_embed_tabs_as_nul(reference):
+    dirty = "Asturcolor 3-Marker Car Touch-up Kit for BMW (475\tBlack\u00a0Sapphire Metallic)"
+    output, validation = three.generate(dirty, reference)
+    assert validation["identification_regions_exact"] == 55
+    with sds.open_pdf(output) as doc:
+        assert all("\x00" not in page.get_text() for page in doc)
+        assert all(three.canonical(page.get_text(clip=three.HEADER)) == dirty.replace("\t", " ").replace("\u00a0", " ") for page in doc)
+
+
+def test_tab_separated_batch_first_unchanged_then_different_colors(reference, tmp_path, monkeypatch):
+    import uuid
+    first_title = "Asturcolor 3-Marker Car Touch-up Kit for BMW (300 Alpine White)"
+    # Mimic re-uploading a generated first-colour PDF as the reference: the first
+    # title is already right, while subsequent colours require real insertion.
+    already_first, _ = sds.generate(first_title, reference)
+    monkeypatch.setenv("LOCAL_STORAGE_DIR", str(tmp_path))
+    monkeypatch.delenv("APP_PASSWORD", raising=False)
+    monkeypatch.delenv("S3_BUCKET", raising=False)
+    monkeypatch.setattr(settings, "IS_VERCEL", False)
+    with TestClient(app) as client:
+        upload = storage.save_bytes(already_first, "first-colour-reference.pdf", "application/pdf")
+        response = client.post("/api/sds/parse", json={"mode":"template", "brand":"BMW",
+            "title_template":"Asturcolor 3-Marker Car Touch-up Kit for {BRAND} ({VALUE})",
+            "values_text":"300\tAlpine White\n475\tBlack Sapphire Metallic\n354\tTitanium Silver Metallic"})
+        assert response.status_code == 200
+        items, batch_id = response.json()["items"], str(uuid.uuid4())
+        for index, item in enumerate(items):
+            # Deliberately bypass the parser clean-up for one API request too.
+            item["title"] = item["title"].replace(item["code"] + " ", item["code"] + "\t")
+            result = client.post("/api/sds/generate", json={"item":item, "reference_token":upload["token"],
+                "render_previews":False, "batch_id":batch_id, "batch_index":index, "batch_size":len(items)})
+            assert result.status_code == 200, (index, result.text)
+            assert result.json()["validation"]["identification_regions_exact"] == 55
+            pdf = client.get(result.json()["file"]["url"]).content
+            with sds.open_pdf(pdf) as doc:
+                assert all("\x00" not in page.get_text() for page in doc)
+        batch = client.get("/api/history/batches/" + batch_id).json()
+        assert batch["count"] == batch["expected_count"] == 3 and not batch["partial"]
+
+
+def test_generated_subset_font_is_not_reused_for_new_glyphs(reference):
+    current, _ = sds.generate("Asturcolor 3-Marker Car Touch-up Kit for BMW (300 Alpine White)", reference)
+    for value in ("475 Black Sapphire Metallic", "A52 Space Grey Metallic", "354 Titanium Silver Metallic"):
+        title = f"Asturcolor 3-Marker Car Touch-up Kit for BMW ({value})"
+        current, _ = sds.generate(title, current)
+        with sds.open_pdf(current) as doc:
+            assert all(three.canonical(page.get_text(clip=three.HEADER)) == title for page in doc)
+            assert all("\x00" not in page.get_text() for page in doc)
+
+
+def test_legacy_generated_subset_font_and_whitespace_are_safe():
+    first_title = "Asturcolor BMW (300 Alpine White)"
+    reference, _ = sds.generate(first_title)
+    second_title = "Asturcolor BMW (475\tBlack\u00a0Sapphire Metallic)"
+    output, validation = sds.generate(second_title, reference)
+    assert validation["pages"] == 41 and validation["paint_title_regions_exact"] == 24
+    with sds.open_pdf(output) as doc:
+        assert sds.title_regions(doc) == [sds.normalized(second_title)] * 24
+        assert all("\x00" not in page.get_text() for page in doc)
 
 
 def test_unknown_layout_and_overlong_title_fail_closed(reference):

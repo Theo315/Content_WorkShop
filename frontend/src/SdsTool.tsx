@@ -132,6 +132,8 @@ export default function SdsTool({ maxUpload, settingsVersion }: { maxUpload: num
           batch_size: list.length,
           zip_path: item.filename,
           last_written_at: writtenTimes[i],
+        }).catch((e: Error) => {
+          throw new Error(`Рядок ${i + 1} (${item.code}): ${e.message}`);
         });
         setResults((previous) => [
           ...previous,
