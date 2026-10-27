@@ -40,7 +40,7 @@ def test_sds_generation_preserves_all_pages_and_titles(client):
                                                "values_text": "LB9A CANDY WHITE"})
     assert parsed.status_code == 200, parsed.text
     item = parsed.json()["items"][0]
-    response = client.post("/api/sds/generate", json={"item": item, "render_previews": True})
+    response = client.post("/api/sds/generate", json={"item": item, "render_previews": True, "preview_count": 4})
     assert response.status_code == 200, response.text
     value = response.json()
     archived = client.get("/api/history/" + value["history_id"]).json()

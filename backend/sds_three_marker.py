@@ -3,7 +3,8 @@
 This changes product identification only, never the three mixture compositions.
 Unknown layouts fail closed instead of reusing the legacy 41-page rectangles.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import lru_cache
 import re
 import uuid
 
@@ -28,7 +29,7 @@ def identity(title):
     return match[1], match[2]
 
 
-def preflight(doc):
+def preflight(doc, *, with_plans=False):
     if doc.page_count != 49:
         raise SDSError("Еталон 3-Marker повинен мати 49 сторінок.")
     headings = [canonical(page.get_text(clip=HEADER)) for page in doc]
@@ -45,8 +46,8 @@ def preflight(doc):
         if canonical(page.get_text(clip=SUBTITLE)) != expected:
             raise SDSError(f"Непідтримувана структура компонентів 3-Marker на сторінці {index + 1}.")
     # Require the identifying cover and paint fields too, not only page count.
-    plans(doc, headings[0], brand, value)
-    return brand, value
+    replacements = plans(doc, headings[0], brand, value)
+    return (brand, value, replacements) if with_plans else (brand, value)
 
 
 @dataclass
@@ -59,6 +60,8 @@ class Replacement:
     baseline: float
     bold: bool = False
     centered: bool = False
+    kind: str = ""
+    original: str = ""
 
 
 def lines(page):
@@ -67,11 +70,12 @@ def lines(page):
             yield line, canonical("".join(span["text"] for span in line["spans"]))
 
 
-def replacement(page_index, line, text, target, centered=False):
+def replacement(page_index, line, text, target, centered=False, kind=""):
     spans = line["spans"]
     return Replacement(page_index, fitz.Rect(line["bbox"]) + (-.25, -.2, .25, .2),
                        fitz.Rect(target), text, min(s["size"] for s in spans), spans[0]["origin"][1],
-                       any(s["flags"] & 16 for s in spans), centered)
+                       any(s["flags"] & 16 for s in spans), centered, kind,
+                       canonical("".join(span["text"] for span in spans)))
 
 
 def plans(doc, title, brand, value):
@@ -85,15 +89,15 @@ def plans(doc, title, brand, value):
         for line, text in lines(page):
             rect = fitz.Rect(line["bbox"])
             if HEADER.contains((rect.tl + rect.br) / 2) and text == old_title:
-                result.append(replacement(index, line, title, HEADER, centered=True))
+                result.append(replacement(index, line, title, HEADER, centered=True, kind="header"))
                 counts["header"] += 1
             elif index == 0 and 145 <= rect.y0 <= 150 and text in (old_title, old_title.replace(f"({old_value})", old_value)):
-                result.append(replacement(index, line, title, (69, 145, 552, 158)))
+                result.append(replacement(index, line, title, (69, 145, 552, 158), kind="cover"))
                 counts["cover"] += 1
             elif text == paint + old_variant and index in (0, 8, 16):
                 right = 354 if index == 0 else 552
                 result.append(replacement(index, line, paint + brand + " " + value,
-                                          (rect.x0, rect.y0 - .5, right, rect.y1 + .5)))
+                                          (rect.x0, rect.y0 - .5, right, rect.y1 + .5), kind="paint"))
                 counts["paint"] += 1
             elif index in (0, 4) and ((index == 0 and text.startswith("Three separate mixtures,")) or
                                      (index == 4 and text.startswith("9.1 Basic physical and chemical properties:"))):
@@ -102,16 +106,19 @@ def plans(doc, title, brand, value):
                 if not re.search(r"(?<!\w)" + re.escape(old_brand) + r"(?!\w)", text):
                     raise SDSError("Не знайдено марку в пояснювальному тексті 3-Marker.")
                 changed = re.sub(r"(?<!\w)" + re.escape(old_brand) + r"(?!\w)", lambda _: brand, text)
-                result.append(replacement(index, line, changed, (rect.x0, rect.y0 - .5, 557, rect.y1 + .5)))
+                result.append(replacement(index, line, changed, (rect.x0, rect.y0 - .5, 557, rect.y1 + .5), kind="prose"))
                 counts["prose"] += 1
     if counts != dict(header=49, cover=1, paint=3, prose=2):
         raise SDSError("Еталон 3-Marker має інші зони ідентифікації. Жодних змін не застосовано.")
     return result
 
 
-def fitted(plan):
+def fitted(plan, fonts=None):
     font_path = FONT.with_name("NotoSans-Bold.ttf") if plan.bold else FONT
-    font = fitz.Font(fontfile=str(font_path))
+    fonts = {} if fonts is None else fonts
+    if font_path not in fonts:
+        fonts[font_path] = fitz.Font(fontfile=str(font_path))
+    font = fonts[font_path]
     # One line per bounded existing row: never push the component subtitle,
     # adjacent table cells or safety paragraphs down.
     size = min(plan.size, (plan.target.width - 2) / max(font.text_length(plan.text, fontsize=1), .01))
@@ -123,24 +130,71 @@ def fitted(plan):
     return font_path, size, x, baseline
 
 
+@dataclass(frozen=True)
+class PreparedReference:
+    brand: str
+    replacements: tuple
+    protected_words: tuple
+    dates: tuple
+
+
+@lru_cache(maxsize=2)
+def prepare_reference(reference_data):
+    """Cache source analysis by exact bytes, never live documents or text pages.
+
+    Each output still has every identity, date and protected word checked. A new
+    upload (including a regenerated PDF) necessarily gets its own analysis.
+    """
+    with open_pdf(reference_data) as source:
+        brand, _, replacements = preflight(source, with_plans=True)
+        protected, dates = [], []
+        for index, page in enumerate(source):
+            textpage = page.get_textpage(flags=fitz.TEXTFLAGS_TEXT)
+            excluded = [p.source | p.target for p in replacements if p.page == index]
+            protected.append(tuple(word_signature(page, excluded, textpage.extractWORDS())))
+            dates.append(tuple(DATE.findall(textpage.extractText())))
+        return PreparedReference(brand, tuple(replacements), tuple(protected), tuple(dates))
+
+
+def output_plans(prepared, title, brand, value):
+    replacements = []
+    for plan in prepared.replacements:
+        if plan.kind in ("header", "cover"):
+            text = title
+        elif plan.kind == "paint":
+            text = f"Asturcolor Touch-up Paint - {brand} {value}"
+        else:
+            text = re.sub(r"(?<!\w)" + re.escape(prepared.brand) + r"(?!\w)", lambda _: brand, plan.text)
+        replacements.append(replace(plan, text=text))
+    return replacements
+
+
 def validate_output(data, reference_data, title):
     brand, value = identity(title)
-    with open_pdf(reference_data) as source, open_pdf(data) as result:
-        preflight(source)
-        expected = plans(source, title, brand, value)
+    prepared = prepare_reference(reference_data)
+    expected = output_plans(prepared, title, brand, value)
+    with open_pdf(data) as result:
         if result.page_count != 49:
             raise SDSError("Після генерації змінилася кількість сторінок 3-Marker.")
-        for plan in expected:
-            if canonical(result[plan.page].get_text(clip=plan.target)) != canonical(plan.text):
-                raise SDSError(f"Перевірка 3-Marker: неправильна ідентифікація на сторінці {plan.page + 1}.")
-        for index in range(49):
-            excluded = [p.source | p.target for p in expected if p.page == index]
-            if word_signature(source[index], excluded) != word_signature(result[index], excluded):
+        varnish = 0
+        for index, page in enumerate(result):
+            # Share the full-page text parse for protected words and dates.
+            textpage = page.get_textpage(flags=fitz.TEXTFLAGS_TEXT)
+            current = [plan for plan in expected if plan.page == index]
+            for plan in current:
+                # The Python extractTextbox implementation walks every glyph
+                # on the page; bounded native extraction is much faster here.
+                if canonical(page.get_text(clip=plan.target)) != canonical(plan.text):
+                    raise SDSError(f"Перевірка 3-Marker: неправильна ідентифікація на сторінці {index + 1}.")
+            excluded = [p.source | p.target for p in current]
+            if prepared.protected_words[index] != tuple(word_signature(page, excluded, textpage.extractWORDS())):
                 raise SDSError(f"Змінено захищений текст 3-Marker на сторінці {index + 1}.")
-        for before, after in zip(source, result):
-            if DATE.findall(before.get_text()) != DATE.findall(after.get_text()):
+            text = textpage.extractText()
+            if prepared.dates[index] != tuple(DATE.findall(text)):
                 raise SDSError("Змінилися дати еталона 3-Marker.")
-        varnish = sum(canonical(page.get_text()).count("Clear varnish") for page in result)
+            if "\x00" in text:
+                raise SDSError(f"Непідтримувані символи 3-Marker на сторінці {index + 1}.")
+            varnish += canonical(text).count("Clear varnish")
         return dict(pages=49, paint_title_regions_exact=50, clear_varnish_regions_exact=varnish,
                     dates_preserved=True, protected_text_preserved=True,
                     template_format="three-marker-49", identification_regions_exact=len(expected))
@@ -150,19 +204,22 @@ def generate(title, reference_data):
     title = normalized(title)
     validate_title(title)
     brand, value = identity(title)
+    prepared = prepare_reference(reference_data)
+    replacements = output_plans(prepared, title, brand, value)
     with open_pdf(reference_data) as doc:
-        preflight(doc)
-        replacements = plans(doc, title, brand, value)
         # Keep already-correct fields in their original fonts/content streams.
         # In a same-make colour batch the explanatory primer lines need no edit.
-        placements = [(plan, fitted(plan)) for plan in replacements
-                      if canonical(doc[plan.page].get_text(clip=plan.source)) != canonical(plan.text)]
+        fonts = {}
+        placements = [(plan, fitted(plan, fonts)) for plan in replacements
+                      if plan.original != canonical(plan.text)]
         # A previously generated reference has subset fonts under our old
         # resource names. Reusing those names makes MuPDF ignore fontfile and
         # emit missing glyphs for the next colour. Bind fresh, complete fonts.
         font_tag = uuid.uuid4().hex
         for index, page in enumerate(doc):
             current = [(plan, fit) for plan, fit in placements if plan.page == index]
+            if not current:
+                continue
             for plan, _ in current:
                 page.add_redact_annot(plan.source, fill=(1, 1, 1), cross_out=False)
             page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
@@ -170,5 +227,7 @@ def generate(title, reference_data):
                 page.insert_text((x, baseline), plan.text, fontname=("ThreeMarkerBold" if plan.bold else "ThreeMarkerRegular") + font_tag,
                                  fontfile=str(font_path), fontsize=size, color=(0, 0, 0), overlay=True)
         doc.subset_fonts()
-        data = doc.tobytes(garbage=4, deflate=True)
+        # Deduplication (levels 3/4) compares unchanged source objects for every
+        # item. Level 2 removes unused objects and compacts xrefs without it.
+        data = doc.tobytes(garbage=2, deflate=True)
     return data, validate_output(data, reference_data, title)

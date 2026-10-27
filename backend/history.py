@@ -21,24 +21,26 @@ log = logging.getLogger("content-tools")
 
 
 class PendingResult:
-    """Write PNG outputs once, directly to their final private history keys."""
+    """Write outputs once, directly to their final private history keys."""
     def __init__(self):
         self.entry_id = f"{9999999999999999 - int(now() * 1000):016d}-{uuid.uuid4().hex}"
         self.keys = []
         self.committed = False
 
     def store(self, file, preview):
-        files = [(role, value) for role, value in (("result", file), ("preview", preview))]
+        return self.store_many([("result", file), ("preview", preview)])
+
+    def store_many(self, files):
+        """Only network I/O runs in workers; PDF/image work stays serialized."""
         self.keys = [f"history/files/{self.entry_id}/{role}/{storage.clean_name(value[1])}" for role, value in files]
         def save(index):
             data, name, content_type = files[index][1]
             return storage.save_bytes(data, name, content_type, asset_key=self.keys[index])
         if settings.storage_mode() == "s3":
-            # boto3 clients are thread-safe; encoding/MuPDF never run in these workers.
             storage.s3()
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                return tuple(pool.map(save, range(2)))
-        return tuple(save(index) for index in range(2))
+            with ThreadPoolExecutor(max_workers=min(4, len(files))) as pool:
+                return tuple(pool.map(save, range(len(files))))
+        return tuple(save(index) for index in range(len(files)))
 
     def cleanup(self):
         if self.committed:

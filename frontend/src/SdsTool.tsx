@@ -127,6 +127,7 @@ export default function SdsTool({ maxUpload, settingsVersion }: { maxUpload: num
           item,
           reference_token: batchReference.token,
           render_previews: true,
+          preview_count: 1,
           batch_id: batchId,
           batch_index: i,
           batch_size: list.length,

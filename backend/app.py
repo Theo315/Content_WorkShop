@@ -292,19 +292,43 @@ def parse_sds(data: m.SDSParse):
 
 
 @router.post("/sds/generate")
-def generate_sds(data: m.SDSGenerate):
+def generate_sds(data: m.SDSGenerate, response: Response):
+    started = perf_counter()
+    timings = {}
+    pending = history.PendingResult()
     with compute_lock:
+        timings["queue"] = perf_counter() - started
+        reading = perf_counter()
         reference_data = storage.read_bytes(data.reference_token) if data.reference_token else preferences.default_pdf_bytes()
+        timings["source"] = perf_counter() - reading
+        generating = perf_counter()
         result, validation = sds.generate(data.item.title, reference_data)
+        timings["generate"] = perf_counter() - generating
+        rendering = perf_counter()
         preview_indices = (0, 1, 8, 31) if validation["pages"] == 49 else (0, 8, 23, 29)
+        preview_indices = preview_indices[:data.preview_count] if data.render_previews else ()
         previews = [sds.render_page(result, index) for index in preview_indices] if data.render_previews else []
+        timings["preview"] = perf_counter() - rendering
     name = sds.filename(data.item.code, data.item.brand, data.item.color)
-    file = storage.save_bytes(result, name, "application/pdf")
-    preview_refs = [storage.save_bytes(image, f"{data.item.code}-p{index}.png", "image/png")
-                    for image, index in zip(previews, (index + 1 for index in preview_indices))]
-    return history.record("sds", data.item.code or data.item.title,
-        dict(file=file, previews=preview_refs, validation=validation),
-        dict(item=data.item.model_dump(), validation=validation), f"{validation['pages']} стор. · SDS", batch=data.result_metadata())
+    outputs = [("result", (result, name, "application/pdf"))]
+    outputs.extend(("preview" if offset == 0 else f"preview-{index + 1}",
+                    (image, f"{data.item.code}-p{index + 1}.png", "image/png"))
+                   for offset, (image, index) in enumerate(zip(previews, preview_indices)))
+    try:
+        uploading = perf_counter()
+        file, *preview_refs = pending.store_many(outputs)
+        timings["upload"] = perf_counter() - uploading
+        recording = perf_counter()
+        result = history.record("sds", data.item.code or data.item.title,
+            dict(file=file, previews=preview_refs, validation=validation),
+            dict(item=data.item.model_dump(), validation=validation), f"{validation['pages']} стор. · SDS",
+            batch=data.result_metadata(), pending=pending)
+        timings.update(history=perf_counter() - recording, total=perf_counter() - started)
+        response.headers["Server-Timing"] = ", ".join(f"{name};dur={seconds * 1000:.1f}" for name, seconds in timings.items())
+        return result
+    except Exception:
+        pending.cleanup()
+        raise
 
 
 @router.post("/sds/find")

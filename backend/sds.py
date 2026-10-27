@@ -129,9 +129,12 @@ def preflight(doc):
             raise SDSError("Розміри сторінок еталона неоднакові.")
 
 
-def word_signature(page, exclusions):
-    return [str(word[4]) for word in page.get_text("words")
-            if not any(fitz.Rect(word[:4]).intersects(rect) for rect in exclusions)]
+def word_signature(page, exclusions, words=None):
+    boxes = [tuple(rect) for rect in exclusions if rect.x0 < rect.x1 and rect.y0 < rect.y1]
+    words = page.get_text("words") if words is None else words
+    return [str(word[4]) for word in words
+            if not any(word[0] < box[2] and word[2] > box[0] and
+                       word[1] < box[3] and word[3] > box[1] for box in boxes)]
 
 
 def wrap_title(title, font, width, initial_size):
@@ -214,7 +217,7 @@ def generate(title, reference_data=None):
             if index == 0:
                 insert_title(page, title, font, main=False, fontname=fontname)
         doc.subset_fonts()
-        data = doc.tobytes(garbage=4, deflate=True, clean=True)
+        data = doc.tobytes(garbage=2, deflate=True, clean=True)
     return data, validate_output(data, reference_data, title)
 
 

@@ -158,6 +158,7 @@ class SDSGenerate(BatchMetadata):
     item: SDSItem
     reference_token: Token | None = None
     render_previews: bool = True
+    preview_count: Literal[1, 4] = 1
 
 class Find(Model):
     file_token: Token

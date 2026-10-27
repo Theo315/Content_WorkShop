@@ -3,7 +3,7 @@ import pymupdf as fitz
 import pytest
 from fastapi.testclient import TestClient
 
-from backend import sds, sds_three_marker as three, storage, settings
+from backend import sds, sds_three_marker as three, storage, settings, security
 from backend.app import app
 
 
@@ -179,3 +179,56 @@ def test_saved_49_page_reference_reports_49_and_is_used(reference, monkeypatch, 
             assert len(doc) == 49
         restored = client.post("/api/settings/sds/reference/restore").json()
         assert restored["pages"] == 41
+
+
+def test_batch_reuses_source_analysis_but_checks_each_output(reference, monkeypatch):
+    three.prepare_reference.cache_clear()
+    original, calls = three.preflight, []
+    def counted(doc, **kwargs):
+        calls.append(doc.page_count)
+        return original(doc, **kwargs)
+    monkeypatch.setattr(three, "preflight", counted)
+    title = "Asturcolor 3-Marker Car Touch-up Kit for BMW (475 Black Sapphire)"
+    output, _ = sds.generate(title, reference)
+    sds.generate("Asturcolor 3-Marker Car Touch-up Kit for BMW (354 Titanium Silver)", reference)
+    assert calls == [49]
+    # Corruption on the LAST page must be rejected even with a warm source cache.
+    with sds.open_pdf(output) as doc:
+        doc[48].insert_text((69, 400), "Unexpected safety content", fontsize=8)
+        corrupted = doc.tobytes()
+    with pytest.raises(sds.SDSError, match="захищений текст.*49"):
+        three.validate_output(corrupted, reference, title)
+    with sds.open_pdf(output) as doc:
+        doc[33].add_redact_annot(three.HEADER, fill=(1,1,1))
+        doc[33].apply_redactions()
+        corrupted = doc.tobytes()
+    with pytest.raises(sds.SDSError, match="ідентифікація.*34"):
+        three.validate_output(corrupted, reference, title)
+    # A different PDF cannot inherit the previous source's safety signatures.
+    other = fixture_pdf(value="A52 Space Grey")
+    sds.generate(title, other)
+    assert calls == [49, 49]
+
+
+@pytest.mark.parametrize("previews,count", [(True,1), (True,4), (False,0)])
+def test_sds_api_uses_final_history_objects_and_requested_previews(reference, tmp_path, monkeypatch, previews, count):
+    monkeypatch.setenv("LOCAL_STORAGE_DIR", str(tmp_path))
+    monkeypatch.delenv("APP_PASSWORD", raising=False)
+    monkeypatch.delenv("S3_BUCKET", raising=False)
+    monkeypatch.setattr(settings, "IS_VERCEL", False)
+    with TestClient(app) as client:
+        upload = storage.save_bytes(reference, "reference.pdf", "application/pdf")
+        response = client.post("/api/sds/generate", json={"item":dict(code="475",brand="BMW",color="Black Sapphire",
+            title="Asturcolor 3-Marker Car Touch-up Kit for BMW (475 Black Sapphire)"),
+            "reference_token":upload["token"], "render_previews":previews, "preview_count":4 if count==4 else 1})
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert len(result["previews"]) == count
+        assert all(name+";dur=" in response.headers["Server-Timing"] for name in
+                   ("queue","source","generate","preview","upload","history","total"))
+        assert not list((tmp_path / "temporary").rglob("*.png"))
+        assert list((tmp_path / "temporary").rglob("*.pdf")) == [tmp_path / security.read_file_token(upload["token"])["key"]]
+        assert client.get(result["file"]["url"]).status_code == 200
+        if previews:
+            archived = client.get("/api/history/"+result["history_id"]).json()
+            assert archived["preview"]["name"] == "475-p1.png"
