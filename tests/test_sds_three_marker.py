@@ -58,6 +58,10 @@ def test_49_page_replacements_preserve_safety_data(reference, brand, value):
         assert all("CAS: 668-00-1" in page.get_text() and "UFI: KEEP-UNCHANGED" in page.get_text() for page in doc)
         assert "668 Jet Black" not in "\n".join(page.get_text() for page in doc)
         assert doc.metadata["subject"] == "three-marker-synthetic-test"
+        if brand == "BMW":
+            prose = [span for block in doc[4].get_text("dict")["blocks"] for line in block.get("lines", [])
+                     for span in line["spans"] if span["text"].startswith("9.1 Basic")]
+            assert prose and prose[0]["font"] == "Helvetica"
         # A generated 49-page PDF can itself be uploaded as the next reference.
         sds.preflight(doc)
 

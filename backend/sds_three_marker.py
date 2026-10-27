@@ -151,7 +151,10 @@ def generate(title, reference_data):
     with open_pdf(reference_data) as doc:
         preflight(doc)
         replacements = plans(doc, title, brand, value)
-        placements = [(plan, fitted(plan)) for plan in replacements]
+        # Keep already-correct fields in their original fonts/content streams.
+        # In a same-make colour batch the explanatory primer lines need no edit.
+        placements = [(plan, fitted(plan)) for plan in replacements
+                      if canonical(doc[plan.page].get_text(clip=plan.source)) != canonical(plan.text)]
         for index, page in enumerate(doc):
             current = [(plan, fit) for plan, fit in placements if plan.page == index]
             for plan, _ in current:
