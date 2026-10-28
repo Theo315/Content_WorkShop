@@ -7,7 +7,7 @@ from backend import sds, sds_three_marker as three, storage, settings, security
 from backend.app import app
 
 
-def fixture_pdf(brand="BMW", value="668 Jet Black"):
+def fixture_pdf(brand="BMW", value="668 Jet Black", cover_column_right=None):
     title = f"Asturcolor 3-Marker Car Touch-up Kit for {brand} ({value})"
     with fitz.open() as doc:
         for index in range(49):
@@ -22,6 +22,10 @@ def fixture_pdf(brand="BMW", value="668 Jet Black"):
             page.insert_text((69, 110), "Date 23/10/2026; Revision 10/02/2023. UFI: KEEP-UNCHANGED.", fontsize=8)
             page.insert_text((69, 310), "Protected safety text. CAS: 668-00-1. 12 mL. H226. Clear varnish.", fontsize=8)
             if index == 0:
+                if cover_column_right:
+                    page.draw_line((144.05, 190), (144.05, 210))
+                    page.draw_line((cover_column_right, 190), (cover_column_right, 210))
+                    page.insert_text((cover_column_right+3, 201), "12 mL", fontsize=7.1)
                 page.insert_text((69, 154), title.replace(f"({value})", value), fontsize=8.11)
                 page.insert_text((147.05, 201), f"Asturcolor Touch-up Paint - {brand} {value}", fontsize=7.1)
                 page.insert_text((69, 232), f"Three separate mixtures, unchanged components. The {brand} code", fontsize=8.11)
@@ -83,6 +87,50 @@ def test_brand_detection_is_not_hardcoded_to_bmw():
         text = "\n".join(page.get_text() for page in doc)
         assert "Mercedes-Benz" not in text and "040 Black" not in text
         assert "The Audi code" in text and "Audi colour names" in text
+
+
+@pytest.mark.parametrize("brand,value", [
+    ("Mercedes-Benz", "744 PLATA BRILLANTE METALIZADO"),
+    ("MERCEDES-BENZ", "744 PLATA BRILLANTE METALIZADO"),
+    ("Mercedes-Benz AMG", "744 PLATA BRILLANTE METALIZADO"),
+])
+def test_long_colour_fits_cover_cell_and_can_be_reused(reference, brand, value):
+    title = f"Asturcolor 3-Marker Car Touch-up Kit for {brand} ({value})"
+    output, validation = sds.generate(title, reference)
+    assert validation["identification_regions_exact"] == 55
+    with sds.open_pdf(output) as doc:
+        cover = doc[0]
+        text = f"Asturcolor Touch-up Paint - {brand} {value}"
+        matches = [line for line, content in three.lines(cover) if content == text]
+        assert len(matches) == 1
+        label = matches[0]
+        # Preserve the complete label within the product-identifier column.
+        assert label["bbox"][0] >= 147 and label["bbox"][2] <= 354
+        assert label["bbox"][1] >= 194 and label["bbox"][3] <= 204
+        assert all(three.canonical(page.get_text(clip=three.HEADER)) == title for page in doc)
+        sds.preflight(doc)
+    # A fitted output can be reused as a reference without progressive shrinking
+    # or the subset-font regression that broke subsequent colours previously.
+    next_title = f"Asturcolor 3-Marker Car Touch-up Kit for {brand} (775 PLATA IRIDIO METALIZADO)"
+    regenerated, _ = sds.generate(next_title, output)
+    with sds.open_pdf(regenerated) as doc:
+        assert all(three.canonical(page.get_text(clip=three.HEADER)) == next_title for page in doc)
+
+
+def test_cover_fitting_uses_real_column_border_and_keeps_neighbouring_volume():
+    source = fixture_pdf(cover_column_right=413.28)
+    title = "Asturcolor 3-Marker Car Touch-up Kit for Mercedes-Benz (744 PLATA BRILLANTE METALIZADO)"
+    for _ in range(2):
+        result, _ = sds.generate(title, source)
+        with sds.open_pdf(result) as doc:
+            line = next(line for line, text in three.lines(doc[0])
+                        if text == "Asturcolor Touch-up Paint - Mercedes-Benz 744 PLATA BRILLANTE METALIZADO")
+            assert 6.8 < min(span["size"] for span in line["spans"]) <= 7.1
+            assert line["bbox"][2] < 413.28
+            assert "12 mL" in doc[0].get_text(clip=fitz.Rect(413.28, 190, 455, 210))
+        # Real regenerated PDFs also contain filled redaction rectangles. These
+        # must not be mistaken for new, progressively narrower table borders.
+        source = result
 
 
 def test_direct_generator_cannot_embed_tabs_as_nul(reference):
