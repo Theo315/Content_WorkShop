@@ -83,6 +83,7 @@ def detect_plate(
         return rejected
     level = float(np.percentile(inner, 70))
     box_area = (x2 - x1) * (y2 - y1)
+    selection_aspect = (x2 - x1) / max(1, y2 - y1)
     box_center = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
     roi = np.zeros(gray.shape, np.uint8)
     roi[y1 - sy1:y2 - sy1, x1 - sx1:x2 - sx1] = 255
@@ -113,16 +114,27 @@ def detect_plate(
             (cx, cy), (rw, rh) = rect[0], rect[1]
             if rw < rh:
                 rw, rh = rh, rw
-            if rh <= 6 or not 2.5 <= rw / rh <= 12 or not 0.05 * box_area <= rw * rh <= 2.0 * box_area:
+            if rh <= 6 or not 1.0 <= rw / rh <= 12 or not 0.05 * box_area <= rw * rh <= 2.0 * box_area:
+                continue
+            compact = rw / rh < 2.5
+            if compact and (not .8 <= selection_aspect <= 2.8 or
+                            not .6 <= (rw / rh) / selection_aspect <= 1.6 or
+                            rw * rh < .3 * box_area):
                 continue
             edges = np.roll(cv2.boxPoints(rect), -1, axis=0) - cv2.boxPoints(rect)
             long_edge = max(edges, key=lambda e: float(np.hypot(*e)))
+            if compact and rw / rh < 1.2:
+                # A square has no unique long edge; orient text horizontally.
+                long_edge = max(edges, key=lambda e: abs(float(e[0])))
+                rw, rh = float(np.hypot(*long_edge)), rw * rh / float(np.hypot(*long_edge))
             if long_edge[0] < 0:
                 long_edge = -long_edge
             angle = math.degrees(math.atan2(float(long_edge[1]), float(long_edge[0])))
             dx = abs(sx1 + cx - box_center[0]) / max(1, x2 - x1)
             dy = abs(sy1 + cy - box_center[1]) / max(1, y2 - y1)
             if abs(angle) > MAX_PLATE_ANGLE or dx > 0.5 or dy > 0.65:
+                continue
+            if compact and (dx > .3 or dy > .3):
                 continue
             silhouette = np.zeros(gray.shape, np.uint8)
             cv2.drawContours(silhouette, [contour], -1, 255, cv2.FILLED)
@@ -144,7 +156,9 @@ def detect_plate(
             if enclosed_surface:
                 continue
             overlap = cv2.countNonZero(cv2.bitwise_and(silhouette, roi)) / max(1, area)
-            if area / (rw * rh) < 0.7 or overlap < 0.65:
+            if area / (rw * rh) < (.82 if compact else .7) or overlap < 0.65:
+                continue
+            if compact and overlap * area < .35 * box_area:
                 continue
             # A uniform white bumper/crop has no distinct plate boundary.
             ring = (cv2.dilate(silhouette, kernel, iterations=2) > 0) & (silhouette == 0)

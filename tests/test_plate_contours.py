@@ -59,6 +59,40 @@ def test_saturated_bumper_highlight_cannot_join_rounded_plate():
     assert np.array_equal(output[94, 320], source[94, 320])
 
 
+@pytest.mark.parametrize("aspect", [1.0, 1.33, 1.8, 2.2])
+@pytest.mark.parametrize("angle", [-15, 0, 15])
+def test_compact_plate_is_detected_without_modifying_its_frame_or_body(aspect, angle):
+    source = np.full((240, 440, 3), (55, 170, 38), np.uint8)
+    width, height = round(64 * aspect), 64
+    x1, y1 = 220-width//2, 120-height//2
+    cv2.rectangle(source, (x1-4, y1-4), (x1+width+4, y1+height+4), (30,30,30), -1)
+    cv2.rectangle(source, (x1, y1), (x1+width, y1+height), (220,218,215), -1)
+    allowed = np.zeros(source.shape[:2],np.uint8)
+    cv2.rectangle(allowed, (x1,y1), (x1+width,y1+height), 255,-1)
+    cv2.putText(source, "249", (x1+5,y1+40), cv2.FONT_HERSHEY_SIMPLEX,.6,(20,20,20),2)
+    matrix = cv2.getRotationMatrix2D((220,120),angle,1)
+    source = cv2.warpAffine(source,matrix,(440,240),flags=cv2.INTER_NEAREST,borderValue=(55,170,38))
+    allowed = cv2.warpAffine(allowed,matrix,(440,240),flags=cv2.INTER_NEAREST)
+    points = cv2.findNonZero(allowed)
+    bx,by,bw,bh = cv2.boundingRect(points)
+    bounds = (bx-3,by-3,bx+bw+3,by+bh+3)
+    geometry = detect_plate(source,bounds,key_color="#1E9E52")
+    assert geometry.detected and geometry.shape is not None
+    assert not np.any((geometry.shape>0) & (allowed==0))
+    output,warning = render(source,geometry,bounds)
+    assert warning is None and np.any(output!=source)
+    assert_unchanged_outside(source,output,allowed)
+
+
+def test_compact_selection_rejects_small_highlight_and_round_headlamp():
+    source = np.full((200,300,3), (55,170,38),np.uint8)
+    bounds = (100,60,210,125)
+    cv2.rectangle(source,(143,84),(162,101),(235,235,235),-1)
+    assert not detect_plate(source,bounds).detected
+    cv2.circle(source,(155,92),29,(235,235,235),-1)
+    assert not detect_plate(source,bounds).detected
+
+
 def test_dark_placeholder_glyph_holes_are_wiped_without_growing_outline():
     source, allowed = rounded_plate_scene()
     cv2.putText(source, "OLD", (164, 129), cv2.FONT_HERSHEY_SIMPLEX,
