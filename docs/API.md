@@ -43,9 +43,9 @@ The UI plans dates once before the run from a Kyiv wall-clock start (`Europe/Kyi
 ## Preferences and durable template library
 
 - `GET /api/settings` → `{sds:SDSReference,templates:Template[],deleted_templates:Array<{id,name}>}`. Authenticated; refreshed signed URLs.
-- `SDSReference = {file:FileRef|null,available:boolean,pages:41|0,custom:boolean,title_template:string,description:string}`. No active PDF means `file:null`, `available:false`, `pages:0`.
+- `SDSReference = {file:FileRef|null,available:boolean,pages:number,custom:boolean,title_template:string,description:string}`. Supported layouts: original 41-page, revised paint + varnish with component pagination (including 24+19=43 pages), three-marker 49-page. No active PDF means `file:null`, `available:false`, `pages:0`.
 - `PUT /api/settings/sds/title` `{title_template:string}` → current SDS reference. Requires a supported placeholder and a valid sample title.
-- `PUT /api/settings/sds/reference` `{token:string}` → current SDS reference. Validates the original 41-page structure before saving a durable copy. Invalid uploads leave the previous default unchanged.
+- `PUT /api/settings/sds/reference` `{token:string}` → current SDS reference. Recognises and validates a supported layout before saving a durable copy. Invalid uploads leave the previous default unchanged.
 - `DELETE /api/settings/sds/reference` → removes the active default PDF, including the builtin. Returns unavailable `SDSReference`; title preference remains unchanged. The builtin packaged file is not physically deleted; a previous custom durable copy is deleted. There is no implicit fallback after removal.
 - `POST /api/settings/sds/reference/restore` → restores builtin `SDSReference`; clears the disabled flag and deletes any old custom durable copy. Title preference remains unchanged.
 - `POST /api/settings/templates` `{name,image_token,car_mask_token?,marker_mask_token?,config:TemplateConfig}` → `Template`. Up to 100 user templates. PNG/mask dimensions validated; requires body mask or key HEX. PNG and masks get durable private copies.
@@ -70,6 +70,8 @@ The UI plans dates once before the run from a Kyiv wall-clock start (`Europe/Kyi
 - `auto_font_size` defaults to `true`: the full brand/code is fitted to the plate and the selected `plate_box`, including tilt. With `false`, `font_size` is an upper limit; smaller text is still selected when necessary. Very small or unreadable text produces a warning, not intentional cropping.
 
 ## SDS
+
+The revised two-component layout uses `item.brand`, `item.code`, `item.color` for the short page headings, footers and paint identifier; `item.title` is the full kit name on both component opening pages. Component pagination determines the paint/varnish boundary, including the supplied 43-page layout. Every other word and date is validated on every output page; an arbitrary PDF is not accepted by page count alone.
 
 - `GET /api/sds/reference` → `SDSReference` (nullable active reference PDF).
 - `POST /api/sds/parse` `{mode:'template'|'exact',brand:string,title_template:string,values_text:string,exact_text:string}` → `{items:Array<{code,brand,color,title,filename}>}`.

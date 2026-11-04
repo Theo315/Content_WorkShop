@@ -110,7 +110,7 @@ export default function Settings({ maxUpload, referencesVersion, onChanged }: {
         <Panel title="Типовий PDF">
           {data && <div className="settings-reference"><FileText size={22} /><div><strong>{data.sds.file?.name ?? "PDF-шаблон видалено"}</strong><small>{data.sds.file ? `${data.sds.pages} стор. · ${data.sds.custom ? "Власний" : "Вбудований"}` : "Встановіть новий PDF або відновіть вбудований."}</small></div>{data.sds.file && <a href={data.sds.file.url} target="_blank" rel="noreferrer">Відкрити</a>}</div>}
           <Upload label="Замінити PDF" accept=".pdf" file={pdf} onFile={setPdf} compact />
-          <p className="hint">Підтримуються еталони SDS на 41 сторінку та 3-Marker на 49 сторінок. Структура й захищений текст перевіряються.</p>
+          <p className="hint">Підтримуються оригінальний SDS на 41 сторінку, двокомпонентний з колонтитулами (зокрема 43 стор.) та 3-Marker на 49 сторінок. Структура й захищений текст перевіряються.</p>
           <div className="settings-actions">
             <button className="primary" disabled={!pdf} onClick={() => void action(async () => {
               if (!pdf) return; checked(pdf, ".pdf");

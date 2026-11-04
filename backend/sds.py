@@ -112,11 +112,14 @@ def title_regions(doc):
 
 
 def preflight(doc):
+    from . import sds_two_marker
+    if sds_two_marker.matches(doc):
+        return sds_two_marker.preflight(doc)
     if doc.page_count == 49:
         from . import sds_three_marker
         return sds_three_marker.preflight(doc)
     if doc.page_count != 41:
-        raise SDSError(f"Потрібен сумісний еталон на 41 сторінку або 3-Marker на 49 сторінок; отримано {doc.page_count}.")
+        raise SDSError(f"Не розпізнано макет SDS ({doc.page_count} стор.). Підтримуються оригінальний 41-сторінковий, двокомпонентний з колонтитулами та 3-Marker на 49 сторінок.")
     text = "\n".join(page.get_text() for page in doc)
     for date in REQUIRED_DATES:
         if date not in text:
@@ -164,8 +167,11 @@ def insert_title(page, title, font, main=True, fontname="SDSNoto"):
     return size
 
 
-def validate_output(data, reference_data, title):
+def validate_output(data, reference_data, title, *, item=None):
+    from . import sds_two_marker
     with open_pdf(reference_data) as reference:
+        if sds_two_marker.matches(reference):
+            return sds_two_marker.validate_output(data, reference_data, title, item)
         three_marker = reference.page_count == 49
     if three_marker:
         from . import sds_three_marker
@@ -193,12 +199,15 @@ def validate_output(data, reference_data, title):
                     dates_preserved=True, protected_text_preserved=True)
 
 
-def generate(title, reference_data=None):
+def generate(title, reference_data=None, *, item=None):
     # Also sanitize direct /generate callers, not only /parse results.
     title = normalized(title)
     validate_title(title)
     reference_data = reference_data or REFERENCE.read_bytes()
+    from . import sds_two_marker
     with open_pdf(reference_data) as reference:
+        if sds_two_marker.matches(reference):
+            return sds_two_marker.generate(title, reference_data, item)
         three_marker = reference.page_count == 49
     if three_marker:
         from . import sds_three_marker

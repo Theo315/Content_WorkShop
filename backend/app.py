@@ -302,10 +302,13 @@ def generate_sds(data: m.SDSGenerate, response: Response):
         reference_data = storage.read_bytes(data.reference_token) if data.reference_token else preferences.default_pdf_bytes()
         timings["source"] = perf_counter() - reading
         generating = perf_counter()
-        result, validation = sds.generate(data.item.title, reference_data)
+        result, validation = sds.generate(data.item.title, reference_data, item=data.item.model_dump())
         timings["generate"] = perf_counter() - generating
         rendering = perf_counter()
         preview_indices = (0, 1, 8, 31) if validation["pages"] == 49 else (0, 8, 23, 29)
+        if validation.get("template_format") == "two-marker":
+            start = validation["paint_pages"]
+            preview_indices = (0, min(1, start-1), start, min(start+1, validation["pages"]-1))
         preview_indices = preview_indices[:data.preview_count] if data.render_previews else ()
         previews = [sds.render_page(result, index) for index in preview_indices] if data.render_previews else []
         timings["preview"] = perf_counter() - rendering
