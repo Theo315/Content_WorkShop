@@ -1,14 +1,19 @@
 .png-grid {
   --png-image-height: max(280px, calc(100dvh - 245px));
-  grid-template-columns: minmax(0, 1fr) minmax(240px, min(48vw, calc(var(--png-image-height) * var(--png-aspect, 1))));
+  grid-template-columns: minmax(0, 1fr) minmax(240px, min(49%, calc(var(--png-image-height) * var(--png-aspect, 1))));
 }
 .png-grid[data-preview="result"] { --png-image-height: max(230px, calc(100dvh - 355px)); }
 .png-grid .form-column { container-type: inline-size; }
-.png-grid .form-column fieldset { align-items: start; gap: 14px; }
-.png-grid .form-column fieldset > .panel + .panel { padding-top: 12px; }
-.png-source-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 10px; align-items: end; }
+.png-grid .form-column fieldset { gap: 14px; }
+.png-grid .form-column .panel-header { min-height: 28px; margin-bottom: 10px; }
+.png-source .panel-header button { min-height: 28px; padding: 4px 7px; font-size: 11px; }
+.png-source-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(124px, 1fr); gap: 10px; align-items: end; }
 .png-source-row > .field { margin: 0; }
-.png-source-row .upload { min-height: 38px; padding: 8px 10px; }
+.png-source-row .upload,
+.png-source-row .template-picker-trigger { height: 38px; }
+.png-source-row .upload { min-height: 38px; padding: 3px 10px; }
+.png-source-row .upload strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.png-source-row .upload small { margin-top: 2px; }
 .png-grid .template-preview,
 .png-grid .result-preview {
   border: 0;
@@ -25,17 +30,28 @@
 .png-grid .template-preview > .empty-preview { border: 1px dashed var(--border); border-radius: var(--radius); }
 .png-grid .png-colors textarea { min-height: 144px; }
 .png-grid .png-colors .swatches { max-height: 80px; }
-.png-export-inline {
+.png-controls {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
   gap: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
 }
-.png-export-inline .timestamp-fields { padding-top: 0; border: 0; }
-.png-export-inline .timestamp-grid { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); }
-.png-brand { min-width: 0; }
-.png-brand > input { width: 100%; }
+.png-grid .png-colors { border-top: 1px solid var(--border); padding-top: 12px; }
+.png-brand {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+.png-brand .check-label { margin: 0; }
+.png-options .hint + .png-brand { margin-top: 10px; }
+.png-options .timestamp-fields { padding-top: 10px; border: 0; }
+.png-options .timestamp-fields > .check-label:last-child { margin: 0; }
+.png-options .timestamp-grid { display: flex; flex-wrap: wrap; }
+.png-options .timestamp-grid > .field:first-child { flex: 1.7 1 170px; }
+.png-options .timestamp-grid > .field:last-child { flex: 1 1 100px; }
 .mask-fallback {
   margin-top: 12px;
   display: flex;
@@ -104,18 +120,16 @@
   to { opacity: 1; transform: translateY(0); }
 }
 @container (min-width: 540px) {
-  .png-grid .form-column fieldset { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
-  .png-grid .png-source { grid-column: 1 / -1; }
-  .png-grid .form-column fieldset > .plate-options,
-  .png-grid .form-column fieldset > .png-colors { border-top: 1px solid var(--border); padding-top: 12px; }
-  .png-grid .png-colors { grid-column: 2; grid-row: 2 / 4; }
-  .png-grid .png-export-inline { grid-column: 1; grid-row: 3; grid-template-columns: minmax(0, 1fr); }
-  .png-grid .png-brand { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; }
-  .png-grid .png-brand .check-label { margin: 0; }
+  .png-controls { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
+  .png-grid .png-colors { border-top: 0; padding-top: 0; }
+}
+@media (min-width: 701px) and (min-height: 540px) {
+  .png-grid { grid-template-rows: minmax(0, 1fr); }
+  .png-grid .form-column { height: auto; max-height: 100%; align-self: start; }
+  .png-grid .form-scroll { margin-inline: -5px; padding-inline: 5px; scrollbar-gutter: auto; }
 }
 @media (max-width: 700px) {
   .png-grid { grid-template-columns: minmax(0, 1fr); }
-  .png-export-inline { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) {
   .template-picker-popover:popover-open, .template-picker-preview { animation: none; }

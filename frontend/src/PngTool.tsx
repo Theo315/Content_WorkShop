@@ -395,118 +395,120 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
               <button type="button" onClick={() => setEditor("marker")}><Paintbrush size={15} />Маска маркера</button>
             </div>}
           </Panel>
-          {source && <Panel title="Номерний знак" className="plate-options" action={
-            <button onClick={() => setEditor("plate")}><Crop size={14} />{config.plate_box ? "Область" : "Виділити"}</button>
-          }>
-            <label className="check-label">
-              <input type="checkbox" checked={plate} onChange={e => setPlate(e.target.checked)} />
-              Змінювати напис
-            </label>
-            {plate ? <>
-              <Field label="Що писати на номері">
-                <select value={config.plate_text_mode ?? "brand_code"} onChange={e => setConfig({ ...config, plate_text_mode: e.target.value as PlateTextMode })}>
-                  <option value="brand_code">Бренд + код</option>
-                  <option value="code">Лише код</option>
-                  <option value="brand">Лише бренд · без коду</option>
-                  <option value="custom">Власний текст</option>
-                  <option value="blank">Порожній номер</option>
-                </select>
-              </Field>
-              {config.plate_text_mode === "custom" && <Field label="Власний напис" hint="Саме цей текст, без автоматичного додавання бренду чи коду.">
-                <input value={config.plate_text ?? ""} maxLength={200} placeholder="Наприклад: MY PAINT" onChange={e => setConfig({ ...config, plate_text: e.target.value })} />
-              </Field>}
-              {!config.plate_box && <p className="hint">Виділіть область номерного знака. Текст автоматично впишеться в неї.</p>}
-            </> : <p className="hint">Залишиться оригінальний напис із шаблону.</p>}
-          </Panel>}
-          <Panel
-            title="Кольори"
-            className="png-colors"
-            action={
-              <label className="upload-link">
-                <UploadIcon size={14} />
-                CSV
-                <input
-                  type="file"
-                  accept=".csv,.txt"
-                  onChange={async (e) => {
-                    const f = e.target.files?.[0];
-                    if (f) {
-                      try {
-                        checked(f);
-                        setColorsText(await f.text());
-                        setColorsFormat(
-                          f.name.endsWith(".csv") ? "csv" : "list",
-                        );
-                      } catch (err) {
-                        setError((err as Error).message);
+          <div className="png-controls">
+            <Panel title={source ? "Номерний знак" : "Параметри"} className="plate-options png-options" action={source &&
+              <button onClick={() => setEditor("plate")}><Crop size={14} />{config.plate_box ? "Область" : "Виділити"}</button>
+            }>
+              {source && <>
+                <label className="check-label">
+                  <input type="checkbox" checked={plate} onChange={e => setPlate(e.target.checked)} />
+                  Змінювати напис
+                </label>
+                {plate ? <>
+                  <Field label="Що писати на номері">
+                    <select value={config.plate_text_mode ?? "brand_code"} onChange={e => setConfig({ ...config, plate_text_mode: e.target.value as PlateTextMode })}>
+                      <option value="brand_code">Бренд + код</option>
+                      <option value="code">Лише код</option>
+                      <option value="brand">Лише бренд · без коду</option>
+                      <option value="custom">Власний текст</option>
+                      <option value="blank">Порожній номер</option>
+                    </select>
+                  </Field>
+                  {config.plate_text_mode === "custom" && <Field label="Власний напис" hint="Саме цей текст, без автоматичного додавання бренду чи коду.">
+                    <input value={config.plate_text ?? ""} maxLength={200} placeholder="Наприклад: MY PAINT" onChange={e => setConfig({ ...config, plate_text: e.target.value })} />
+                  </Field>}
+                  {!config.plate_box && <p className="hint">Виділіть область номерного знака. Текст автоматично впишеться в неї.</p>}
+                </> : <p className="hint">Залишиться оригінальний напис із шаблону.</p>}
+              </>}
+              <div className="png-brand">
+                <label className="check-label"><input type="checkbox" checked={useBrand}
+                  disabled={!plate || config.plate_text_mode === "custom"}
+                  onChange={event => setConfig(previous => ({ ...previous, plate_text_mode: event.target.checked
+                    ? previous.plate_text_mode === "blank" ? "brand" : "brand_code"
+                    : previous.plate_text_mode === "brand" ? "blank" : "code" }))} />Бренд</label>
+                <input aria-label="Бренд на номері" value={config.brand_name} maxLength={120}
+                  disabled={!plate || !useBrand}
+                  onChange={event => setConfig(previous => ({ ...previous, brand_name: event.target.value }))} />
+              </div>
+              <TimestampFields value={timestamp} onChange={setTimestamp} />
+            </Panel>
+            <Panel
+              title="Кольори"
+              className="png-colors"
+              action={
+                <label className="upload-link">
+                  <UploadIcon size={14} />
+                  CSV
+                  <input
+                    type="file"
+                    accept=".csv,.txt"
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      if (f) {
+                        try {
+                          checked(f);
+                          setColorsText(await f.text());
+                          setColorsFormat(
+                            f.name.endsWith(".csv") ? "csv" : "list",
+                          );
+                        } catch (err) {
+                          setError((err as Error).message);
+                        }
                       }
+                    }}
+                  />
+                </label>
+              }
+            >
+              <Field
+                label="Код · HEX"
+                hint="1 рядок = 1 колір · metallic необов’язково"
+              >
+                <textarea
+                  className="code-input"
+                  rows={7}
+                  placeholder={"1KGA #7FA9B5\n2DB #9B9D9B metallic\n575 #245B8E"}
+                  value={colorsText}
+                  onChange={(e) => { setColorsText(e.target.value); setColorsFormat("list"); }}
+                />
+              </Field>
+              <div className="color-summary">
+                <span>
+                  {colors.length
+                    ? `${colors.filter((c) => !c.error).length} кольорів перевірено`
+                    : "До 200 кольорів"}
+                </span>
+                <button
+                  className="text-button"
+                  onClick={async () => {
+                    try {
+                      await parseColors();
+                      setError("");
+                    } catch (e) {
+                      setError((e as Error).message);
                     }
                   }}
-                />
-              </label>
-            }
-          >
-            <Field
-              label="Код · HEX"
-              hint="1 рядок = 1 колір · metallic необов’язково"
-            >
-              <textarea
-                className="code-input"
-                rows={7}
-                placeholder={"1KGA #7FA9B5\n2DB #9B9D9B metallic\n575 #245B8E"}
-                value={colorsText}
-                onChange={(e) => { setColorsText(e.target.value); setColorsFormat("list"); }}
-              />
-            </Field>
-            <div className="color-summary">
-              <span>
-                {colors.length
-                  ? `${colors.filter((c) => !c.error).length} кольорів перевірено`
-                  : "До 200 кольорів"}
-              </span>
-              <button
-                className="text-button"
-                onClick={async () => {
-                  try {
-                    await parseColors();
-                    setError("");
-                  } catch (e) {
-                    setError((e as Error).message);
-                  }
-                }}
-                disabled={!colorsText.trim()}
-              >
-                Перевірити
-              </button>
-            </div>
-            {colors.length > 0 && (
-              <div className="swatches">
-                {colors.map((c, i) => (
-                  <span
-                    className={c.error ? "swatch invalid" : "swatch"}
-                    key={i}
-                    title={c.error ?? c.hex}
-                  >
-                    <i style={{ background: c.error ? "#d64949" : c.hex }} />
-                    {c.code}
-                    {c.error && <small>{c.error}</small>}
-                  </span>
-                ))}
+                  disabled={!colorsText.trim()}
+                >
+                  Перевірити
+                </button>
               </div>
-            )}
-          </Panel>
-          <div className="png-export-inline">
-            <div className="png-brand">
-              <label className="check-label"><input type="checkbox" checked={useBrand}
-                disabled={!plate || config.plate_text_mode === "custom"}
-                onChange={event => setConfig(previous => ({ ...previous, plate_text_mode: event.target.checked
-                  ? previous.plate_text_mode === "blank" ? "brand" : "brand_code"
-                  : previous.plate_text_mode === "brand" ? "blank" : "code" }))} />Бренд</label>
-              <input aria-label="Бренд на номері" value={config.brand_name} maxLength={120}
-                disabled={!plate || !useBrand}
-                onChange={event => setConfig(previous => ({ ...previous, brand_name: event.target.value }))} />
-            </div>
-            <TimestampFields value={timestamp} onChange={setTimestamp} />
+              {colors.length > 0 && (
+                <div className="swatches">
+                  {colors.map((c, i) => (
+                    <span
+                      className={c.error ? "swatch invalid" : "swatch"}
+                      key={i}
+                      title={c.error ?? c.hex}
+                    >
+                      <i style={{ background: c.error ? "#d64949" : c.hex }} />
+                      {c.code}
+                      {c.error && <small>{c.error}</small>}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </Panel>
           </div>
         </fieldset>
         <ErrorMessage message={error} />
