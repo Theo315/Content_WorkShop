@@ -7,6 +7,10 @@
   height: auto;
 }
 .png-grid[data-preview="result"] { --png-image-height: max(230px, calc(100dvh - 355px)); }
+.png-grid .preview-switch {
+  width: clamp(min(100%, 176px), var(--png-preview-width, 100%), 100%);
+  margin-inline: auto;
+}
 .png-grid .form-column { container-type: inline-size; }
 .png-grid .form-column fieldset { gap: 14px; }
 .png-grid .form-column .panel-header { min-height: 28px; margin-bottom: 10px; }

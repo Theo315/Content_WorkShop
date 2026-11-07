@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import {
   Check,
   Crop,
@@ -99,6 +99,31 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
   const [previewMode, setPreviewMode] = useState<"original" | "result">(
     "original",
   );
+  const previewColumn = useRef<HTMLElement>(null);
+  const hasPreviewImage = previewMode === "original" ? Boolean(source) : results.length > 0;
+  useLayoutEffect(() => {
+    if (!hasPreviewImage) return;
+    const column = previewColumn.current;
+    const image = column?.querySelector<HTMLImageElement>(".template-preview > img, .result-preview > img");
+    if (!column || !image) return;
+
+    const syncWidth = () => {
+      const width = image.naturalWidth ? image.getBoundingClientRect().width : 0;
+      if (width > 0) column.style.setProperty("--png-preview-width", `${width}px`);
+      else column.style.removeProperty("--png-preview-width");
+    };
+    syncWidth();
+    const observer = new ResizeObserver(syncWidth);
+    observer.observe(image);
+    image.addEventListener("load", syncWidth);
+    image.addEventListener("error", syncWidth);
+    return () => {
+      observer.disconnect();
+      image.removeEventListener("load", syncWidth);
+      image.removeEventListener("error", syncWidth);
+      column.style.removeProperty("--png-preview-width");
+    };
+  }, [previewMode, hasPreviewImage]);
   useEffect(() => {
     let active = true;
     const requestRevision = catalogRevision.current;
@@ -554,7 +579,7 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
         )}
         </div>
       </div>
-      <aside className="preview-column">
+      <aside className="preview-column" ref={previewColumn}>
         <div className="preview-switch">
           <button
             className={previewMode === "original" ? "active" : ""}
