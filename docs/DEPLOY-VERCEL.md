@@ -190,7 +190,7 @@ python -m venv .venv
 Bucket → **Settings → Object lifecycle rules**: створи enabled-правила expiration:
 
 - prefix `temporary/`: 1 день;
-- prefix `history/`: 30 днів.
+- prefix `history/`: 7 днів.
 
 [STORAGE-LIFECYCLE.json](STORAGE-LIFECYCLE.json) містить S3 API-формат цих правил; у UI заповнюй відповідні поля, не вставляй цей JSON у CORS. Не додавай загального expiration без prefix. `assets/`, `preferences/`, `library/` повинні зберігатися. [R2 lifecycle](https://developers.cloudflare.com/r2/buckets/object-lifecycles/).
 
@@ -202,7 +202,7 @@ B2 зберігає старі/приховані версії: звичайни
 |---|---|---|
 | Порожній: усі файли | Не задавати / `null` | `1` |
 | `temporary/` | `1` | `1` |
-| `history/` | `30` | `1` |
+| `history/` | `7` | `1` |
 
 Перше правило прибирає тільки старі/приховані версії, не актуальну бібліотеку. Не став `1` у uploading-to-hiding для порожнього prefix: це сховає всі шаблони й налаштування. Очищення відбувається не миттєво, додаткові дні враховуй у квоті. [B2 lifecycle](https://www.backblaze.com/docs/en/cloud-storage-lifecycle-rules).
 
@@ -243,7 +243,7 @@ B2 зберігає старі/приховані версії: звичайни
 - Приватний Git не захищає сам сайт. Тут один пароль/одна спільна бібліотека, не мультитенантний сервіс. Окремого rate limiter для входу немає; потрібен довгий випадковий пароль і доступні засоби захисту Vercel. Не публікуй signed URLs або логи з query signatures.
 - Вкладку генерації залишай відкритою: незалежної черги background workers немає. Один запит має serverless timeout; великі пакети не є однією необмеженою задачею.
 - Слідкуй за **всіма** лімітами Vercel: compute, requests, transfer, bundle. Вхідний файл до 25 MiB, PNG до 8 млн пікселів, список до 200, ZIP у браузері до 250 MiB. Прямий upload оминає тільки 4,5 МБ payload API, а не решту квот. [Vercel function limits](https://vercel.com/docs/functions/limitations).
-- Історія доступна 30 днів; для тимчасових файлів налаштовано expiration/hiding після 1 дня. Фізичне видалення пізніше, за циклом провайдера: у B2 після приховання ще має пройти строк deletion, а приховані версії продовжують займати квоту. Бібліотека/налаштування без строку. У сховищі можуть бути тимчасова й архівна копії, previews і старі версії: оцінюй фактичний usage, не тільки суму завантажених оригіналів. Робочий запас нижче 10 ГБ доцільний, але це рекомендація, не гарантований hard cap застосунку. [Строки очищення B2](https://www.backblaze.com/docs/cloud-storage-configure-and-manage-lifecycle-rules).
+- Історія доступна 7 днів. B2 приховує файли історії після 7 днів і видаляє після ще одного дня за своїм циклом очищення. Тимчасові файли приховуються після одного дня. Бібліотека й налаштування зберігаються без строку. [Строки очищення B2](https://www.backblaze.com/docs/cloud-storage-configure-and-manage-lifecycle-rules).
 - PDF використовує PyMuPDF з AGPL/комерційною моделлю. Для закритого сервісу третім особам спочатку визнач відповідний спосіб ліцензування. [Умови PyMuPDF](https://pymupdf.readthedocs.io/en/latest/about.html).
 
 ## 10. Типові помилки

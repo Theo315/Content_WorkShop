@@ -1,5 +1,7 @@
 """HTTP adapter around the original HexPh algorithms; no desktop dependencies."""
 from dataclasses import asdict
+from contextlib import nullcontext
+from functools import lru_cache
 import io
 import json
 import tempfile
@@ -127,12 +129,62 @@ def template_data(template_id=None, template_token=None, saved=None):
     raise UserError("Виберіть або завантажте PNG-шаблон.")
 
 
-def render(request, *, source_data=None, output_store=None, timings=None):
+class KeyColorNotFound(UserError):
+    pass
+
+
+def require_chroma_mask(mask, key_color):
+    if not mask.any():
+        raise KeyColorNotFound(f"На фото не знайдено кузов кольору {key_color}. Вкажіть інший HEX або намалюйте маску.")
+    return mask
+
+
+@lru_cache(maxsize=2)
+def prepare_render(image_data, car_data, marker_data, key_color, plate_box, feather):
+    """Reuse pixel preparation for identical source bytes and options."""
+    image, alpha = image_from_bytes(image_data)
+    height, width = image.shape[:2]
+    TemplateConfig(plate_box=plate_box).validate_against(width, height)
+    marker = mask_from_bytes(marker_data, (height, width)) if marker_data else np.zeros((height, width), np.uint8)
+    if car_data:
+        car = mask_from_bytes(car_data, (height, width))
+    elif key_color:
+        car = require_chroma_mask(ChromaKeySegmenter(image, key_color).segment([], []), key_color)
+        car[marker > 127] = 0
+    else:
+        raise UserError("Завантажте/намалюйте маску кузова або вкажіть ключовий колір chroma.")
+    if not car.any():
+        raise UserError("Маска кузова порожня.")
+    weights = [prepare_weight(car, feather), prepare_weight(marker, feather)]
+    plate = detect_plate(image, plate_box, key_color=key_color) if plate_box is not None else None
+    if plate is not None and plate.detected:
+        margin = 0 if key_color else max(4, round(0.006 * max(height, width)))
+        guard = plate_guard_mask((height, width), plate, margin) > 0
+        for weight in weights:
+            weight[guard] = 0
+    return image, alpha, weights, plate, bool(weights[1].any())
+
+
+def render(request, *, source_data=None, output_store=None, timings=None, compute_lock=None):
+    queued = perf_counter()
+    with compute_lock or nullcontext():
+        if timings is not None:
+            timings["queue"] = perf_counter() - queued
+        result, file_data, preview_data = render_content(request, source_data, timings)
+    uploading = perf_counter()
+    if output_store:
+        file, preview = output_store(file_data, preview_data)
+    else:
+        file, preview = storage.save_bytes(*file_data), storage.save_bytes(*preview_data)
+    if timings is not None:
+        timings["upload"] = perf_counter() - uploading
+    return dict(file=file, preview=preview, **result)
+
+
+def render_content(request, source_data, timings):
     started = perf_counter()
     saved = preferences.load()
-    image, alpha = image_from_bytes(source_data if source_data is not None
-                                   else template_data(request.template_id, request.template_token, saved))
-    height, width = image.shape[:2]
+    image_data = source_data if source_data is not None else template_data(request.template_id, request.template_token, saved)
     custom = bool(request.template_token)
     raw_config = (template_config(request.template_id, saved) if request.template_id and not custom else {})
     if request.config is not None:
@@ -145,7 +197,6 @@ def render(request, *, source_data=None, output_store=None, timings=None):
         text_color=tuple(raw_config.get("text_color", [20, 20, 20])),
         plate_bg_color=tuple(raw_config["plate_bg_color"]) if isinstance(raw_config.get("plate_bg_color"), (list, tuple)) else None,
     )
-    config.validate_against(width, height)
     paths = template_paths(request.template_id) if request.template_id in TEMPLATES and not custom else None
     entry = preferences.car(request.template_id, saved) if request.template_id and not custom and not paths else None
     def mask_data(role, token, index):
@@ -159,26 +210,10 @@ def render(request, *, source_data=None, output_store=None, timings=None):
     car_data = mask_data("car_mask", request.car_mask_token, 1)
     marker_data = mask_data("marker_mask", request.marker_mask_token, 2)
     loaded = perf_counter()
-    marker = mask_from_bytes(marker_data, (height, width)) if marker_data else np.zeros((height, width), np.uint8)
-    if car_data:
-        car = mask_from_bytes(car_data, (height, width))
-    elif config.key_color:
-        car = ChromaKeySegmenter(image, config.key_color).segment([], [])
-        car[marker > 127] = 0
-    else:
-        raise UserError("Завантажте/намалюйте маску кузова або вкажіть ключовий колір chroma.")
-    if not car.any():
-        raise UserError("Маска кузова порожня.")
     options = RecolorOptions(lightness_mode=request.lightness_mode, feather=request.feather)
-    weights = [prepare_weight(car, options.feather), prepare_weight(marker, options.feather)]
-    plate = detect_plate(image, config.plate_box, key_color=config.key_color) if config.plate_box is not None else None
-    if plate is not None and plate.detected:
-        # Protect the detected interior even with chroma-key. Do not protect a
-        # rectangular patch of the surrounding green bumper.
-        margin = 0 if config.key_color else max(4, round(0.006 * max(height, width)))
-        guard = plate_guard_mask((height, width), plate, margin) > 0
-        for weight in weights:
-            weight[guard] = 0
+    image, alpha, weights, plate, has_marker = prepare_render(
+        image_data, car_data, marker_data, config.key_color, config.plate_box, options.feather)
+    height, width = image.shape[:2]
     color = request.color
     code, target = normalize_code(color.code), normalize_hex(color.hex)
     if not code:
@@ -196,7 +231,7 @@ def render(request, *, source_data=None, output_store=None, timings=None):
     elif request.draw_plate:
         warnings.append("Область номера не задана: текст не нанесено.")
     metrics = dict(body_delta_e=round(color_accuracy(output, weights[0], target), 3),
-                   marker_delta_e=round(color_accuracy(output, weights[1], target), 3) if weights[1].any() else None)
+                   marker_delta_e=round(color_accuracy(output, weights[1], target), 3) if has_marker else None)
     if color.metallic:
         warnings.append("Metallic — візуальна імітація; перевірте результат.")
     if metrics["body_delta_e"] >= 5:
@@ -208,17 +243,11 @@ def render(request, *, source_data=None, output_store=None, timings=None):
     preview_alpha = cv2.resize(alpha, (preview_img.shape[1], preview_img.shape[0]), interpolation=cv2.INTER_AREA) if alpha is not None else None
     preview_data = (encode(preview_img, preview_alpha), f"{code}-preview.png", "image/png")
     encoded = perf_counter()
-    if output_store:
-        file, preview = output_store(file_data, preview_data)
-    else:
-        file, preview = storage.save_bytes(*file_data), storage.save_bytes(*preview_data)
     if timings is not None:
-        timings.update(read=loaded - started, process=processed - loaded, encode=encoded - processed,
-                       upload=perf_counter() - encoded)
+        timings.update(read=loaded - started, process=processed - loaded, encode=encoded - processed)
     template_name = (TEMPLATES[request.template_id]["name"] if request.template_id in TEMPLATES and not custom
         else entry["name"] if entry else raw_config.get("model_name") or "Власний PNG")
-    return dict(file=file, preview=preview, metrics=metrics, warnings=warnings, template_name=template_name,
-                plate_text=label)
+    return dict(metrics=metrics, warnings=warnings, template_name=template_name, plate_text=label), file_data, preview_data
 
 
 def plate_text(config, code):
@@ -257,6 +286,8 @@ def create_mask(request):
     if request.backend != "chroma" and not request.positives:
         raise UserError("Позначте хоча б одну точку області фарбування.")
     mask = segmenter.segment(request.positives, request.negatives)
+    if request.backend == "chroma" and not request.positives and not request.negatives:
+        require_chroma_mask(mask, normalize_hex(key_color))
     if request.rects:
         region = np.zeros((h, w), np.uint8)
         for x1, y1, x2, y2 in request.rects:

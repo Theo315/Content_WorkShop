@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { ArrowRight, Clock3, FileText, Image, Layers2, LogOut, Moon, Settings2, Sun } from "lucide-react";
+import { ArrowRight, Clock3, FileText, Image, LogOut, Moon, Settings2, Sun } from "lucide-react";
 import { post, request } from "./api";
 import { Busy, ErrorMessage, Field } from "./components";
 import PngTool from "./PngTool";
@@ -154,7 +154,7 @@ export default function App() {
   }
   return <div className="app-shell">
     <header className="app-header" inert={locked} ref={header}>
-      <a className="app-brand" href="#png" aria-label="Content Workshop — Фото" onClick={() => navigate("png")}><Layers2 size={20} /><span>Workshop</span></a>
+      <a className="app-brand" href="#png" aria-label="AutoKit · Фото та SDS" onClick={() => navigate("png")}><img src="/autokit.svg" width="27" height="27" alt="" /><span>AutoKit</span></a>
       <div className="mode-switch" role="tablist" aria-label="Інструмент" data-utility={tool === "history" || tool === "settings"}
         onKeyDown={e => {
           const next = e.key === "ArrowLeft" || e.key === "Home" ? "png" : e.key === "ArrowRight" || e.key === "End" ? "sds" : null;
@@ -181,9 +181,9 @@ export default function App() {
       {!status ? <div className="connection-state"><Busy text="Підключення…" /><ErrorMessage message={error} />{error && <button onClick={refresh}>Повторити</button>}</div>
         : !status.ready ? <div className="notice">Сервіс не налаштований. Перевірте доступ і сховище файлів.</div> : null}
       {status?.authenticated && status.ready && <div className="view-stack">
-        <div {...viewProps("png")}><PngTool maxUpload={status.max_upload_bytes} settingsVersion={settingsVersion} onTemplatesChanged={() => setReferencesVersion(v => v + 1)} /></div>
+        <div {...viewProps("png")}><PngTool active={tool === "png"} maxUpload={status.max_upload_bytes} settingsVersion={settingsVersion} onTemplatesChanged={() => setReferencesVersion(v => v + 1)} /></div>
         <div {...viewProps("sds")}><SdsTool maxUpload={status.max_upload_bytes} settingsVersion={settingsVersion} /></div>
-        <div {...viewProps("history")}><History active={tool === "history"} /></div>
+        <div {...viewProps("history")}><History active={tool === "history"} mode={mode} /></div>
         <div {...viewProps("settings")}><Settings maxUpload={status.max_upload_bytes} referencesVersion={referencesVersion} onChanged={() => setSettingsVersion(v => v + 1)} /></div>
       </div>}
     </main>
@@ -196,7 +196,7 @@ export default function App() {
           if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
           else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
         }}>
-        <Layers2 size={25} /><h2 id="login-title">Workshop</h2>
+        <img src="/autokit.svg" width="32" height="32" alt="" /><h2 id="login-title">AutoKit</h2>
         <Field label="Пароль"><input autoFocus type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /></Field>
         <ErrorMessage message={error} /><button className="primary full-width" disabled={busy}>{busy ? "Перевірка…" : "Увійти"}<ArrowRight size={16} /></button>
       </form>

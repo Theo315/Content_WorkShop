@@ -17,7 +17,7 @@ function uniquePath(raw: string, used: Set<string>) {
   used.add(path.toLocaleLowerCase());
   return path;
 }
-export async function downloadResultArchive(items: ArchiveResult[], filename: string) {
+export async function downloadResultArchive(items: ArchiveResult[], filename: string, includeReport = true) {
   if (!items.length) throw new Error("Пакет порожній.");
   if (items.reduce((total, item) => total + item.file.size, 0) > MAX_ARCHIVE_BYTES)
     throw new Error("Пакет перевищує 250 МБ. Завантажуйте файли окремо.");
@@ -33,6 +33,6 @@ export async function downloadResultArchive(items: ArchiveResult[], filename: st
     report.push({ name: path, label: item.label, last_written_at: item.lastWrittenAt ?? null,
       timestamp_timezone: TIMESTAMP_TIME_ZONE, detail: item.detail, warnings: item.warnings, data: item.metadata });
   }
-  archive.file("generation-report.json", JSON.stringify(report, null, 2), { date: archiveDate });
+  if (includeReport) archive.file("generation-report.json", JSON.stringify(report, null, 2), { date: archiveDate });
   download(await archive.generateAsync({ type: "blob" }), filename);
 }

@@ -148,5 +148,5 @@ def prune_local():
     # History owns only these generated files, not uploaded source documents.
     history_root = local_root() / "history"
     for path in history_root.rglob("*"):
-        if path.is_file() and time.time() - path.stat().st_mtime > 30 * 86400:
+        if path.is_file() and time.time() - path.stat().st_mtime > settings.HISTORY_DAYS * 86400:
             path.unlink(missing_ok=True)

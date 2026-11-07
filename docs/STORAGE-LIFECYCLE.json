@@ -10,7 +10,7 @@
       "ID": "expire-content-tools-history",
       "Status": "Enabled",
       "Filter": {"Prefix": "history/"},
-      "Expiration": {"Days": 30}
+      "Expiration": {"Days": 7}
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, FileCheck2, Package } from "lucide-react";
 import { downloadFile } from "./api";
 import type { FileRef } from "./api";
@@ -24,6 +24,7 @@ export default function Results({
   archiveName,
   forceArchive = false,
   archiveLabel = "Усі файли · ZIP",
+  keyboardNavigation = false,
 }: {
   items: Result[];
   type: "png" | "pdf";
@@ -33,21 +34,45 @@ export default function Results({
   archiveName?: string;
   forceArchive?: boolean;
   archiveLabel?: string;
+  keyboardNavigation?: boolean;
 }) {
   const [active, setActive] = useState(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const tabs = useRef<HTMLDivElement>(null);
   useEffect(() => {
     setActive(0);
     setError("");
   }, [items[0]?.file.token]);
   const item = items[Math.min(active, items.length - 1)];
+  useEffect(() => {
+    if (!keyboardNavigation || items.length < 2) return;
+    function onKey(event: KeyboardEvent) {
+      const target = event.target;
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey ||
+          (target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select, [role=listbox], [role=tablist], [role=dialog]"))) ||
+          document.querySelector('[aria-modal="true"]')) return;
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      setActive(previous => Math.max(0, Math.min(items.length - 1, previous + (event.key === "ArrowRight" ? 1 : -1))));
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [keyboardNavigation, items.length]);
+  useEffect(() => {
+    const list = tabs.current;
+    const selected = list?.querySelector(".active");
+    if (!list || !selected) return;
+    const bounds = list.getBoundingClientRect(), button = selected.getBoundingClientRect();
+    if (button.left < bounds.left) list.scrollLeft += button.left - bounds.left;
+    if (button.right > bounds.right) list.scrollLeft += button.right - bounds.right;
+  }, [active]);
   async function save(result: Result) {
     setBusy(true);
     try {
       setError("");
       if (result.lastWrittenAt) {
-        await downloadResultArchive([{ ...result, zipPath: result.file.name }], result.file.name.replace(/\.[^.]+$/, "") + ".zip");
+        await downloadResultArchive([{ ...result, zipPath: result.file.name }], result.file.name.replace(/\.[^.]+$/, "") + ".zip", type !== "png");
       } else await downloadFile(result.file);
     } catch (e) {
       setError((e as Error).message);
@@ -57,7 +82,8 @@ export default function Results({
     setBusy(true);
     setError("");
     try {
-      await downloadResultArchive(items, archiveName ?? `content-${type}.zip`);
+      const files = type === "png" ? items.map(result => ({ ...result, zipPath: result.file.name })) : items;
+      await downloadResultArchive(files, archiveName ?? `content-${type}.zip`, type !== "png");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -85,7 +111,7 @@ export default function Results({
               Параметри змінено — це попередній результат.
             </p>
           )}
-          {items.length > 1 && <div className="result-tabs" aria-label="Результати генерації">
+          {items.length > 1 && <div ref={tabs} className="result-tabs" aria-label="Результати генерації">
             {items.map((r, i) => (
               <button
                 className={i === active ? "active" : ""}

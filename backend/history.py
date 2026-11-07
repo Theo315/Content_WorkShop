@@ -5,19 +5,22 @@ import shutil
 import time
 import uuid
 import logging
+import threading
+from contextlib import nullcontext
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from fastapi import HTTPException
 from botocore.exceptions import ClientError
 from . import settings, storage, security
 
-RETENTION_DAYS = 30
+RETENTION_DAYS = settings.HISTORY_DAYS
 PREFIX = "history/index/"
 BATCH_PREFIX = "history/batch-members/"
 SNAPSHOT_MAX_BYTES = 512_000
 ID = re.compile(r"^[0-9]{16}-[0-9a-f]{32}$")
 _UNSET = object()
 log = logging.getLogger("content-tools")
+batch_locks = tuple(threading.Lock() for _ in range(32))
 
 
 class PendingResult:
@@ -61,6 +64,10 @@ def now():
     return time.time()
 
 
+def expiry(value):
+    return min(value["expires_at"], value["created_at"] + RETENTION_DAYS * 86400)
+
+
 def archive_ref(ref, entry_id, role):
     value = security.read_file_token(ref["token"])
     key = f"history/files/{entry_id}/{role}/{value['name']}"
@@ -78,6 +85,15 @@ def archive_ref(ref, entry_id, role):
 
 
 def record(kind, label, result, metadata, detail="", batch=None, pending=None):
+    batch_id = (batch or {}).get("batch_id")
+    # Keep same-process writes to a batch sequential while PNG computation and
+    # file uploads overlap. Immutable membership still handles other workers.
+    lock = batch_locks[hash(batch_id) % len(batch_locks)] if batch_id else nullcontext()
+    with lock:
+        return record_result(kind, label, result, metadata, detail, batch, pending)
+
+
+def record_result(kind, label, result, metadata, detail, batch, pending):
     created = now()
     batch = dict(batch or {})
     batch.setdefault("last_written_at", datetime.fromtimestamp(created, timezone.utc).isoformat())
@@ -90,8 +106,8 @@ def record(kind, label, result, metadata, detail="", batch=None, pending=None):
         if existing:
             snapshot = read_snapshot(existing)
             first = snapshot["summary"]["items"][0] if snapshot else read_manifest(member_entry_id(existing[0]))
-            if first["expires_at"] <= created:
-                raise HTTPException(410, "Строк зберігання результату завершився (30 днів).")
+            if expiry(first) <= created:
+                raise HTTPException(410, "Строк зберігання результату завершився (7 днів).")
             if first["kind"] != kind or first.get("batch_size") != batch.get("batch_size"):
                 raise HTTPException(409, "Ідентифікатор пакета вже використаний для іншого списку.")
         if len(existing) >= 200:
@@ -131,8 +147,9 @@ def read_manifest(entry_id):
     if not ID.fullmatch(entry_id):
         raise HTTPException(400, "Некоректний запис історії.")
     value = read_json(PREFIX + entry_id + ".json", max_bytes=100_000)
+    value["expires_at"] = expiry(value)
     if value["expires_at"] <= now():
-        raise HTTPException(410, "Строк зберігання результату завершився (30 днів).")
+        raise HTTPException(410, "Строк зберігання результату завершився (7 днів).")
     return value
 
 
@@ -161,7 +178,7 @@ def read_json(key, max_bytes=SNAPSHOT_MAX_BYTES):
 
 
 def present(value):
-    return {**value, "file": storage.make_ref(**value["file"]),
+    return {**value, "expires_at": expiry(value), "file": storage.make_ref(**value["file"]),
             "preview": storage.make_ref(**value["preview"]) if value["preview"] else None}
 
 
@@ -313,7 +330,7 @@ def read_members(entry_ids):
 
 def summarize(batch_id, values, preview_limit=None):
     if not values:
-        raise HTTPException(410, "Пакет відсутній або строк зберігання завершився (30 днів).")
+        raise HTTPException(410, "Пакет відсутній або строк зберігання завершився (7 днів).")
     values.sort(key=lambda value: (value.get("batch_index", 0), value["created_at"], value["id"]))
     first = values[0]
     kind = first["kind"]
@@ -329,7 +346,7 @@ def summarize(batch_id, values, preview_limit=None):
 
 
 def present_batch(summary):
-    return {**summary, "items": [present(value) for value in summary["items"]]}
+    return {**summary, "expires_at": expiry(summary), "items": [present(value) for value in summary["items"]]}
 
 
 def batch_summary(batch_id, entry_ids, preview_limit=None):
@@ -347,7 +364,7 @@ def batch_entry(batch_id):
     return batch_summary(batch_id, [member_entry_id(key) for key in keys])
 
 
-def batch_listing(cursor=None, limit=30):
+def batch_listing(cursor=None, limit=30, kind=None):
     if cursor and not ID.fullmatch(cursor):
         raise HTTPException(400, "Некоректний курсор історії.")
     # Group order is the first successfully produced member, stable during generation.
@@ -367,7 +384,7 @@ def batch_listing(cursor=None, limit=30):
                 # One small object GET per batch on the normal sequential path,
                 # never one manifest GET per generated file.
                 snapshot = read_snapshot(keys_by_batch.get(batch_id, []))
-                if snapshot and snapshot["summary"]["expires_at"] > now():
+                if snapshot and expiry(snapshot["summary"]) > now():
                     summary = present_batch(snapshot["summary"])
                 else:
                     summary = batch_summary(batch_id, ids, preview_limit=3)
@@ -377,6 +394,8 @@ def batch_listing(cursor=None, limit=30):
             if exc.status_code in (404, 410):
                 continue
             raise
+        if kind and (summary["kind"] == "png") != (kind == "png"):
+            continue
         if len(items) == limit:
             return dict(items=items, next_cursor=page_cursor, retention_days=RETENTION_DAYS)
         items.append(summary)

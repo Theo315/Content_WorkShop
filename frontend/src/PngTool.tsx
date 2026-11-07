@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   Check,
   Crop,
@@ -7,16 +7,18 @@ import {
   Sparkles,
   Upload as UploadIcon,
 } from "lucide-react";
-import { post, readDataUrl, request, uploadFile } from "./api";
+import { ApiError, post, request, uploadFile } from "./api";
 import type { FileRef } from "./api";
 import { Busy, ErrorMessage, Field, Panel, Upload } from "./components";
 import MaskEditor from "./MaskEditor";
 import Results from "./Results";
 import type { Result } from "./Results";
 import TimestampFields, { planLastWrittenAt, type TimestampConfig } from "./TimestampFields";
-import ExportSheet from "./ExportSheet";
+import TemplatePicker from "./TemplatePicker";
 import { catalogWithConcurrentSaves, rememberSavedReference, referenceSaveWarnings, upsertReference, type AutoSavedReference } from "./auto-reference";
-import { plateLabel, type PlateTextMode } from "./plate-label";
+import type { PlateTextMode } from "./plate-label";
+
+const DEFAULT_KEY = "#1E9E52";
 
 export type Config = {
   brand_name: string;
@@ -56,8 +58,9 @@ type Render = {
   auto_saved_template?: AutoSavedReference<Template>;
   reference_save_warning?: string;
 };
-export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged }: {
+export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged, active }: {
   maxUpload: number;
+  active: boolean;
   settingsVersion: number;
   onTemplatesChanged: () => void;
 }) {
@@ -68,6 +71,9 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
   const catalogSaves = useRef(new Map<string, { revision: number; template: Template }>());
   const [custom, setCustom] = useState<File | null>(null);
   const [source, setSource] = useState("");
+  const [aspect, setAspect] = useState(1);
+  const [maskFallback, setMaskFallback] = useState(false);
+  const [fallbackKey, setFallbackKey] = useState("");
   const [customRef, setCustomRef] = useState<FileRef | null>(null);
   const [savedReference, setSavedReference] = useState<AutoSavedReference<Template> | null>(null);
   const [referenceWarning, setReferenceWarning] = useState("");
@@ -81,12 +87,8 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
   const [colorsText, setColorsText] = useState("");
   const [colorsFormat, setColorsFormat] = useState<"list" | "csv">("list");
   const [colors, setColors] = useState<Color[]>([]);
-  const [lightness, setLightness] = useState("match");
-  const [feather, setFeather] = useState(1);
   const [plate, setPlate] = useState(true);
-  const [pattern, setPattern] = useState("{brand}/{model}/{code}");
   const [timestamp, setTimestamp] = useState<TimestampConfig>({ enabled: false, start: "", step: "6-8" });
-  const [exportOpen, setExportOpen] = useState(false);
   const [results, setResults] = useState<Result[]>([]);
   const [stale, setStale] = useState(false);
   const [error, setError] = useState("");
@@ -128,12 +130,9 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
     customRef,
     config,
     colorsText,
-    lightness,
-    feather,
     plate,
     car,
     marker,
-    pattern,
     timestamp,
   ]);
   function choose(id: string) {
@@ -146,10 +145,16 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
     setCar(null);
     setMarker(null);
     setError("");
+    setStatus("");
     const t = templates.find((t) => t.id === id);
     setSource(t?.image.url ?? "");
+    setAspect(t ? t.width / t.height : 1);
+    setMaskFallback(false);
+    setFallbackKey(t?.config.key_color ?? "");
     setConfig(t?.config ?? { brand_name: "Asturcolor", model_name: "" });
   }
+  useEffect(() => () => { if (source.startsWith("blob:")) URL.revokeObjectURL(source); }, [source]);
+
   function checked(file: File) {
     if (file.size > maxUpload)
       throw new Error(
@@ -157,6 +162,7 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
       );
   }
   async function setTemplate(file: File) {
+    if (busy) return;
     try {
       checked(file);
       if (!file.name.toLowerCase().endsWith(".png"))
@@ -165,12 +171,13 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
       setStatus("Завантаження шаблону…");
       setSavedReference(null);
       setReferenceWarning("");
-      const src = await readDataUrl(file);
       const ref = await uploadFile(file);
       selectedSource.current = "";
       setSelected("");
       setCustom(file);
-      setSource(src);
+      setSource(URL.createObjectURL(file));
+      setMaskFallback(false);
+      setFallbackKey("");
       setCustomRef(ref);
       setCar(null);
       setMarker(null);
@@ -179,6 +186,7 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
         model_name: file.name.replace(/\.png$/i, ""),
       });
       setError("");
+      setStatus("");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -213,21 +221,6 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
     const blob = await (await fetch(value as string)).blob();
     await setMask(editor as "car" | "marker", blob, `${editor}_mask.png`);
   }
-  async function importConfig(file: File) {
-    try {
-      checked(file);
-      const raw = JSON.parse(await file.text());
-      if (typeof raw.brand_name !== "string")
-        throw new Error(
-          "JSON має містити brand_name. Файл кліків маски не є конфігом.",
-        );
-      const { font_path: _ignored, ...rest } = raw;
-      setConfig(rest);
-      setError("");
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }
   async function parseColors() {
     const r = await post<{ colors: Color[] }>("/api/png/colors", {
       text: colorsText,
@@ -236,7 +229,11 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
     setColors(r.colors);
     return r.colors;
   }
-  async function autoMask() {
+  function showMaskFallback(e: unknown) {
+    if (e instanceof ApiError && e.code === "key_color_not_found") setMaskFallback(true);
+    setError((e as Error).message);
+  }
+  async function autoMask(key = DEFAULT_KEY) {
     try {
       setBusy(true);
       setStatus("Будуємо маску за ключовим кольором…");
@@ -244,17 +241,20 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
         ...input(),
         kind: "car",
         backend: "chroma",
-        key_color: config.key_color,
+        key_color: key,
         positives: [],
         negatives: [],
         rects: [],
         tolerance: 30,
       });
       setCar(r.file);
+      setConfig(previous => ({ ...previous, key_color: key }));
+      if (key === DEFAULT_KEY) setMaskFallback(false);
       setError("");
     } catch (e) {
-      setError((e as Error).message);
+      showMaskFallback(e);
     } finally {
+      setStatus("");
       setBusy(false);
     }
   }
@@ -264,38 +264,8 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
       : { template_token: customRef?.token };
   }
   function zipPath(color: Color) {
-    const safe = (s: string) =>
-      s
-        .replace(/[<>:"/\\|?*\x00-\x1f]/g, "-")
-        .replace(/[. ]+$/, "")
-        .slice(0, 100) || "_";
-    const values: Record<string, string> = {
-      brand: config.brand_name,
-      model: config.model_name ?? "",
-      code: color.code,
-      hex: color.hex.slice(1),
-      template: custom?.name.replace(/\.png$/i, "") ?? selected,
-    };
-    if (
-      pattern.startsWith("/") ||
-      pattern.split("/").includes("..") ||
-      /\{([^}]+)\}/g.test(
-        pattern.replace(/\{(brand|model|code|hex|template)\}/g, ""),
-      )
-    )
-      throw new Error(
-        "Некоректний шаблон назви. Доступні {brand}, {model}, {code}, {hex}, {template}.",
-      );
-    return (
-      pattern
-        .split("/")
-        .map((part) =>
-          safe(
-            part.replace(/\{([^}]+)\}/g, (_, key: string) => values[key] ?? ""),
-          ),
-        )
-        .join("/") + ".png"
-    );
+    const safe = color.code.replace(/[<>:"/\\|?*\x00-\x1f]/g, "-").replace(/[. ]+$/, "").slice(0, 100);
+    return (safe || "_") + ".png";
   }
   async function generate(preview: boolean) {
     setBusy(true);
@@ -307,10 +277,6 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
     try {
       if (!selected && !customRef)
         throw new Error("Оберіть або завантажте PNG-шаблон.");
-      if (!selected && !car && !config.key_color)
-        throw new Error(
-          "Для власного шаблону потрібна маска кузова або ключовий колір.",
-        );
       const list = await parseColors();
       if (list.some((c) => c.error))
         throw new Error("Виправте помилки кольорів перед генерацією.");
@@ -320,45 +286,46 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
       const writtenTimes = planLastWrittenAt(timestamp, batch.length);
       if (new Set(paths.map((p) => p.toLowerCase())).size !== paths.length)
         throw new Error(
-          "Назви файлів повторюються. Додайте {code} до шаблону назви.",
+          "Коди кольорів утворюють однакові назви файлів. Перевірте список.",
         );
       setResults([]);
       setStale(false);
-      const refreshedReferences = new Set<string>();
-      const durations: number[] = [];
-      for (let index = 0; index < batch.length; index++) {
-        if (cancelled.current) break;
-        const color = batch[index];
-        const writtenAt = writtenTimes[index];
-        setStatus(`Генеруємо ${color.code} · ${index + 1} з ${batch.length}`);
-        const startedAt = performance.now();
+      const batchStarted = performance.now();
+      const template = templates.find(entry => entry.id === selected);
+      const renderConfig = {
+        ...config, auto_font_size: true,
+        key_color: car || template?.car_mask ? config.key_color : DEFAULT_KEY,
+      };
+      async function renderColor(color: Color, index: number) {
+        const started = performance.now();
         const r = await post<Render>("/api/png/render", {
           ...input(),
           car_mask_token: car?.token,
           marker_mask_token: marker?.token,
-          config,
+          config: renderConfig,
           color: { code: color.code, hex: color.hex, metallic: color.metallic },
-          lightness_mode: lightness,
-          feather,
+          feather: 1,
           draw_plate: plate,
+          save_reference: index === 0,
           batch_id: batchId,
           batch_index: index,
           batch_size: batch.length,
           zip_path: paths[index],
-          last_written_at: writtenAt,
+          last_written_at: writtenTimes[index],
         });
-        const elapsed = (performance.now() - startedAt) / 1000;
-        durations.push(elapsed);
+        return { r, elapsed: (performance.now() - started) / 1000 };
+      }
+      let completed = 0;
+      function accept(index: number, { r, elapsed }: Awaited<ReturnType<typeof renderColor>>) {
+        const color = batch[index];
+        const writtenAt = writtenTimes[index];
         if (r.auto_saved_template) {
           const saved = r.auto_saved_template;
           catalogSaves.current.set(saved.template.id, { revision: ++catalogRevision.current, template: saved.template });
           setTemplates(previous => upsertReference(previous, saved.template));
           setSavedReference(previous => rememberSavedReference(previous, saved));
           setReferenceWarning("");
-          if (!refreshedReferences.has(saved.template.id)) {
-            refreshedReferences.add(saved.template.id);
-            onTemplatesChanged();
-          }
+          onTemplatesChanged();
         }
         if (r.reference_save_warning) setReferenceWarning(r.reference_save_warning);
         setResults((previous) => [
@@ -373,125 +340,60 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
             metadata: { color, metrics: r.metrics, plate_text: r.plate_text, generation_seconds: elapsed, batch_id: batchId, last_written_at: writtenAt },
           },
         ]);
-        setProgress(Math.round(((index + 1) / batch.length) * 100));
+        setProgress(Math.round((++completed / batch.length) * 100));
         setPreviewMode("result");
       }
-      setStatus(
-        cancelled.current
-          ? "Зупинено. Готові файли доступні для завантаження."
-          : `Генерацію завершено · ${(durations.reduce((sum, value) => sum + value, 0) / durations.length).toLocaleString("uk-UA", { maximumFractionDigits: 2 })} с/фото.`,
-      );
+      for (let index = 0; index < batch.length && !cancelled.current;) {
+        // Persist a custom source on the first successful image before the other
+        // requests start. Two in flight overlap storage with image processing.
+        const size = customRef && index === 0 ? 1 : 2;
+        const group = batch.slice(index, index + size);
+        setStatus(`Генеруємо ${group.map(color => color.code).join(", ")} · ${index + 1}–${index + group.length} з ${batch.length}`);
+        const responses = await Promise.allSettled(group.map((color, offset) => renderColor(color, index + offset)));
+        let failure: PromiseRejectedResult | undefined;
+        responses.forEach((response, offset) => {
+          if (response.status === "fulfilled") accept(index + offset, response.value);
+          else failure ??= response;
+        });
+        if (failure) throw failure.reason;
+        index += group.length;
+      }
+      const average = completed ? (performance.now() - batchStarted) / (1000 * completed) : 0;
+      setStatus(cancelled.current ? "Зупинено. Готові файли доступні для завантаження."
+        : `Генерацію завершено · ${average.toLocaleString("uk-UA", { maximumFractionDigits: 2 })} с/фото.`);
     } catch (e) {
-      setError((e as Error).message);
+      showMaskFallback(e);
     } finally {
       setBusy(false);
     }
   }
   const template = templates.find((t) => t.id === selected);
+  const useBrand = !config.plate_text_mode || config.plate_text_mode === "brand_code" || config.plate_text_mode === "brand";
   return (
-    <div className="tool-grid">
+    <div className="tool-grid png-grid" data-preview={previewMode} style={{ "--png-aspect": aspect } as CSSProperties}>
       <div className="form-column">
         <div className="form-scroll">
         <fieldset disabled={busy}>
-          <Panel title="Шаблон">
-            <Field label="Машина">
-              <select value={selected} onChange={(e) => choose(e.target.value)}>
-                <option value="">Оберіть машину</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Upload
-              label="Власний PNG"
-              accept="image/png,.png"
-              file={custom}
-              onFile={setTemplate}
-              compact
-            />
+          <Panel title="Шаблон" className="png-source" action={source && <button type="button" onClick={() => void autoMask()}>
+            <Sparkles size={15} />Автомаска{car && <Check size={14} aria-label="Маска готова" />}
+          </button>}>
+            <div className="png-source-row">
+              <TemplatePicker templates={templates} selected={selected} onChoose={choose} disabled={busy} />
+              <Upload label="Власний PNG" accept="image/png,.png" file={custom} onFile={setTemplate} compact />
+            </div>
             {savedReference && <p className="settings-success" role="status" aria-live="polite">
               <Check size={14} />{savedReference.created ? "Референс збережено" : "Референс уже збережений"}
             </p>}
             {referenceWarning && <p className="notice" role="alert">{referenceWarning}</p>}
-            {source && (
-              <details className="source-options">
-                <summary>Маски</summary>
-                <div className="mask-controls">
-                  <div>
-                    <span className="mask-check">
-                      {car || template?.car_mask ? (
-                        <Check size={15} />
-                      ) : (
-                        <Paintbrush size={15} />
-                      )}
-                      Кузов
-                    </span>
-                    <button onClick={() => setEditor("car")}>
-                      Редагувати
-                    </button>
-                    <label className="upload-link">
-                      Завантажити
-                      <input
-                        type="file"
-                        accept="image/png"
-                        onChange={(e) => {
-                          if (e.target.files?.[0])
-                            void setMask("car", e.target.files[0]);
-                        }}
-                      />
-                    </label>
-                  </div>
-                  <div>
-                    <span className="mask-check">
-                      {marker || template?.marker_mask ? (
-                        <Check size={15} />
-                      ) : (
-                        <Paintbrush size={15} />
-                      )}
-                      Маркер
-                    </span>
-                    <button onClick={() => setEditor("marker")}>
-                      Редагувати
-                    </button>
-                    <label className="upload-link">
-                      Завантажити
-                      <input
-                        type="file"
-                        accept="image/png"
-                        onChange={(e) => {
-                          if (e.target.files?.[0])
-                            void setMask("marker", e.target.files[0]);
-                        }}
-                      />
-                    </label>
-                  </div>
-                </div>
-                <div className="key-mask-row">
-                  <Field
-                    label="Ключовий колір кузова"
-                  >
-                    <input
-                      placeholder="#1E9E52"
-                      value={config.key_color ?? ""}
-                      onChange={(e) =>
-                        setConfig({ ...config, key_color: e.target.value })
-                      }
-                    />
-                  </Field>
-                  <button
-                    className="auto-mask-button"
-                    disabled={!config.key_color}
-                    onClick={autoMask}
-                  >
-                    <Sparkles size={16} />
-                    Автомаска
-                  </button>
-                  <p className="hint">HEX вихідного кузова</p>
-                </div>
-              </details>
-            )}
+            {source && maskFallback && <div className="mask-fallback">
+              <Field label="Інший ключовий HEX">
+                <input value={fallbackKey} placeholder="#1E9E52" onChange={event => setFallbackKey(event.target.value)} />
+              </Field>
+              <button type="button" disabled={!/^#?[0-9a-f]{6}$/i.test(fallbackKey.trim())}
+                onClick={() => void autoMask(fallbackKey.trim())}>Застосувати HEX</button>
+              <button type="button" onClick={() => setEditor("car")}><Paintbrush size={15} />Маска кузова</button>
+              <button type="button" onClick={() => setEditor("marker")}><Paintbrush size={15} />Маска маркера</button>
+            </div>}
           </Panel>
           {source && <Panel title="Номерний знак" className="plate-options" action={
             <button onClick={() => setEditor("plate")}><Crop size={14} />{config.plate_box ? "Область" : "Виділити"}</button>
@@ -510,18 +412,15 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
                   <option value="blank">Порожній номер</option>
                 </select>
               </Field>
-              {(!config.plate_text_mode || config.plate_text_mode === "brand_code" || config.plate_text_mode === "brand") &&
-                <Field label="Бренд на номері"><input value={config.brand_name} maxLength={120} placeholder="Будь-яка назва" onChange={e => setConfig({ ...config, brand_name: e.target.value })} /></Field>}
               {config.plate_text_mode === "custom" && <Field label="Власний напис" hint="Саме цей текст, без автоматичного додавання бренду чи коду.">
                 <input value={config.plate_text ?? ""} maxLength={200} placeholder="Наприклад: MY PAINT" onChange={e => setConfig({ ...config, plate_text: e.target.value })} />
               </Field>}
-              <div className="plate-label-preview"><span>Напис</span><output aria-label="Попередній текст номера">{plateLabel(config, colors.find(c => !c.error)?.code ?? "КОД") || "(порожній)"}</output></div>
-              {(!config.plate_text_mode || config.plate_text_mode === "brand_code" || config.plate_text_mode === "code") && <p className="hint">Код підставляється з кожного рядка списку кольорів.</p>}
               {!config.plate_box && <p className="hint">Виділіть область номерного знака. Текст автоматично впишеться в неї.</p>}
             </> : <p className="hint">Залишиться оригінальний напис із шаблону.</p>}
           </Panel>}
           <Panel
             title="Кольори"
+            className="png-colors"
             action={
               <label className="upload-link">
                 <UploadIcon size={14} />
@@ -553,10 +452,10 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
             >
               <textarea
                 className="code-input"
-                rows={4}
+                rows={7}
                 placeholder={"1KGA #7FA9B5\n2DB #9B9D9B metallic\n575 #245B8E"}
                 value={colorsText}
-                onChange={(e) => setColorsText(e.target.value)}
+                onChange={(e) => { setColorsText(e.target.value); setColorsFormat("list"); }}
               />
             </Field>
             <div className="color-summary">
@@ -596,9 +495,19 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
               </div>
             )}
           </Panel>
-          <button className="export-trigger" onClick={() => setExportOpen(true)} aria-haspopup="dialog">
-            Експорт <span>{timestamp.enabled ? "Last written time · увімкнено" : "Назви · Last written time · параметри"}</span>
-          </button>
+          <div className="png-export-inline">
+            <div className="png-brand">
+              <label className="check-label"><input type="checkbox" checked={useBrand}
+                disabled={!plate || config.plate_text_mode === "custom"}
+                onChange={event => setConfig(previous => ({ ...previous, plate_text_mode: event.target.checked
+                  ? previous.plate_text_mode === "blank" ? "brand" : "brand_code"
+                  : previous.plate_text_mode === "brand" ? "blank" : "code" }))} />Бренд</label>
+              <input aria-label="Бренд на номері" value={config.brand_name} maxLength={120}
+                disabled={!plate || !useBrand}
+                onChange={event => setConfig(previous => ({ ...previous, brand_name: event.target.value }))} />
+            </div>
+            <TimestampFields value={timestamp} onChange={setTimestamp} />
+          </div>
         </fieldset>
         <ErrorMessage message={error} />
         {busy && <Busy text={status} progress={progress} />}
@@ -658,7 +567,10 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
           <Panel className="preview-panel">
             <div className="template-preview">
               {source ? (
-                <img src={source} alt="Обраний PNG-шаблон" />
+                <img src={source} alt="Обраний PNG-шаблон" onLoad={event => {
+                  const image = event.currentTarget;
+                  if (image.naturalHeight) setAspect(image.naturalWidth / image.naturalHeight);
+                }} />
               ) : (
                 <div className="empty-preview">
                   <div className="empty-icon">
@@ -676,97 +588,9 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
             )}
           </Panel>
         ) : (
-          <Results items={results} type="png" stale={stale} />
+          <Results items={results} type="png" stale={stale} keyboardNavigation={active && !editor} />
         )}
       </aside>
-      {exportOpen && <ExportSheet onClose={() => setExportOpen(false)}>
-        <fieldset disabled={busy} className="export-grid">
-            <div className="two-fields">
-              <Field label="Бренд">
-                <input
-                  value={config.brand_name}
-                  onChange={(e) =>
-                    setConfig({ ...config, brand_name: e.target.value })
-                  }
-                />
-              </Field>
-              <Field label="Модель">
-                <input
-                  value={config.model_name ?? ""}
-                  onChange={(e) =>
-                    setConfig({ ...config, model_name: e.target.value })
-                  }
-                />
-              </Field>
-            </div>
-            <Field label="Яскравість">
-              <select
-                value={lightness}
-                onChange={(e) => setLightness(e.target.value)}
-              >
-                <option value="match">Відповідно до HEX-кольору</option>
-                <option value="keep">Зберегти яскравість шаблону</option>
-              </select>
-            </Field>
-              <Field
-                label="Папки та назви у ZIP"
-                hint="Підстановки: {brand}, {model}, {code}, {hex}, {template}"
-              >
-                <input
-                  className="mono"
-                  value={pattern}
-                  onChange={(e) => setPattern(e.target.value)}
-                />
-              </Field>
-              <div className="two-fields">
-                <Field label="Згладжування маски, px">
-                  <input
-                    type="number"
-                    min="0"
-                    max="10"
-                    step="0.5"
-                    value={feather}
-                    onChange={(e) => setFeather(Number(e.target.value))}
-                  />
-                </Field>
-                <Field label="Розмір тексту номера" hint="Текст автоматично вписується в ширину й висоту області.">
-                  <select
-                    value={config.auto_font_size === false ? "manual" : "auto"}
-                    onChange={(e) => setConfig({ ...config, auto_font_size: e.target.value === "auto" })}
-                  >
-                    <option value="auto">Автоматично · вписати в область</option>
-                    <option value="manual">Задати максимальний розмір</option>
-                  </select>
-                  {config.auto_font_size === false && <input
-                    aria-label="Максимальний розмір тексту номера, px"
-                    type="number"
-                    min="6"
-                    max="300"
-                    value={config.font_size ?? 34}
-                    onChange={(e) =>
-                      setConfig({
-                        ...config,
-                        font_size: Number(e.target.value),
-                      })
-                    }
-                  />}
-                </Field>
-              </div>
-              <TimestampFields value={timestamp} onChange={setTimestamp} />
-              <label className="upload-link">
-                <UploadIcon size={15} />
-                Імпортувати конфіг JSON
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={(e) => {
-                    if (e.target.files?.[0])
-                      void importConfig(e.target.files[0]);
-                  }}
-                />
-              </label>
-        </fieldset>
-      </ExportSheet>}
       {editor && (
         <MaskEditor
           source={source}

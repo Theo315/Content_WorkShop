@@ -17,12 +17,13 @@ const fileCount = (count: number) => `${count} ${count % 10 === 1 && count % 100
 const readyResults = (batch: Batch) => batch.items.map(item => ({ ...item,
   zipPath: item.zip_path ?? item.zipPath, lastWrittenAt: item.last_written_at ?? item.lastWrittenAt }));
 
-export default function History({ active }: { active: boolean }) {
+export default function History({ active, mode }: { active: boolean; mode: "png" | "sds" }) {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [selected, setSelected] = useState<Batch | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [kind, setKind] = useState("all");
+  const [kind, setKind] = useState<"png" | "sds">(mode);
+  const [retention, setRetention] = useState(7);
   const [busy, setBusy] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [error, setError] = useState("");
@@ -42,10 +43,11 @@ export default function History({ active }: { active: boolean }) {
     const generation = ++listRequest.current;
     setBusy(true); setError("");
     try {
-      const page = await request<Page>(`/api/history/batches?limit=20${more && cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+      const page = await request<Page>(`/api/history/batches?limit=20&kind=${kind}${more && cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
       if (generation !== listRequest.current) return;
       setBatches(previous => more ? [...previous, ...page.items.filter(batch => !previous.some(p => p.id === batch.id))] : page.items);
       setCursor(page.next_cursor);
+      setRetention(page.retention_days);
       if (!more) {
         ++selectionRequest.current; setSelected(null);
         if (page.items[0]) void select(page.items[0]);
@@ -55,22 +57,30 @@ export default function History({ active }: { active: boolean }) {
       if (generation === listRequest.current) setError((e as Error).message);
     } finally { if (generation === listRequest.current) setBusy(false); }
   }
-  useEffect(() => { if (active) void load(); }, [active]);
-  const filtered = batches.filter(batch => (kind === "all" || batch.kind === kind) &&
+  useEffect(() => { if (!active) setKind(mode); }, [active, mode]);
+  useEffect(() => {
+    if (!active) return;
+    setBatches([]); setCursor(null); setSelected(null);
+    ++selectionRequest.current;
+    void load();
+    return () => { ++listRequest.current; ++selectionRequest.current; };
+  }, [active, kind]);
+  const filtered = batches.filter(batch => (batch.kind === "png") === (kind === "png") &&
     `${batch.label} ${batch.search_text ?? ""} ${batch.items.map(i => `${i.label} ${i.file.name}`).join(" ")}`
       .toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   const visibleSelected = filtered.some(batch => batch.id === selected?.id) ? selected : null;
 
   return <>
     <div className="history-toolbar">
+      <div className="segmented history-kinds" role="group" aria-label="Розділ історії">
+        <button className={kind === "png" ? "active" : ""} aria-pressed={kind === "png"} onClick={() => setKind("png")}><Image size={15} />Фото</button>
+        <button className={kind === "sds" ? "active" : ""} aria-pressed={kind === "sds"} onClick={() => setKind("sds")}><FileText size={15} />SDS</button>
+      </div>
       <label className="history-search"><Search size={18} /><input aria-label="Пошук в історії"
         placeholder="Пошук пакета, назви або коду" value={query} onChange={e => setQuery(e.target.value)} /></label>
-      <select aria-label="Тип результату" value={kind} onChange={e => setKind(e.target.value)}>
-        <option value="all">Усі пакети</option><option value="png">Фото</option><option value="sds">SDS</option><option value="edit">Редактор PDF</option>
-      </select>
       <button onClick={() => void load()} disabled={busy}><RefreshCw size={16} />Оновити</button>
     </div>
-    <p className="history-caption hint">Один запуск — один пакет. Зберігання — 30 днів.</p>
+    <p className="history-caption hint">Один запуск — один пакет. Зберігання — {retention} днів.</p>
     <ErrorMessage message={error} />
     {busy && <Busy text="Завантажуємо пакети…" />}
     <div className="history-layout">
@@ -88,7 +98,7 @@ export default function History({ active }: { active: boolean }) {
         </button>)}
           {!busy && !filtered.length && <div className="history-empty"><Clock3 size={32} />
             <h3>{batches.length ? "Збігів немає" : "Поки немає пакетів"}</h3>
-            <p>{batches.length ? "Змініть пошук або завантажте ще." : "Завершені PNG і PDF з’являться тут автоматично."}</p>
+            <p>{batches.length ? "Змініть пошук або завантажте ще." : kind === "png" ? "Готові фото з’являться тут автоматично." : "Готові SDS та відредаговані PDF з’являться тут автоматично."}</p>
           </div>}
         </div>
         {cursor && <><p className="hint">Пошук у {batches.length} завантажених пакетах.</p>
@@ -97,6 +107,7 @@ export default function History({ active }: { active: boolean }) {
       <div>{selecting && <Busy text="Відкриваємо пакет…" />}
         <Results items={visibleSelected ? readyResults(visibleSelected) : []} type={visibleSelected?.kind === "png" ? "png" : "pdf"}
           emptyTitle="Оберіть пакет" emptyDescription="Перегляд файлів і завантаження всього пакета."
+          keyboardNavigation={active && kind === "png"}
           forceArchive archiveLabel="Завантажити пакет · ZIP"
           archiveName={visibleSelected ? `pack-${visibleSelected.kind}-${visibleSelected.id.slice(0, 12)}.zip` : undefined} />
         {visibleSelected && <p className="hint">{fileCount(visibleSelected.count)} у пакеті. Доступно до {new Date(visibleSelected.expires_at * 1000)

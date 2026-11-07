@@ -4,6 +4,7 @@ import hmac
 import logging
 import threading
 from time import perf_counter
+from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response, Query
@@ -54,6 +55,11 @@ async def request_guards(request: Request, call_next):
 @app.exception_handler(sds.SDSError)
 async def user_error(request, exc):
     return JSONResponse({"detail": str(exc)}, status_code=422)
+
+
+@app.exception_handler(png.KeyColorNotFound)
+async def key_color_not_found(request, exc):
+    return JSONResponse({"detail": str(exc), "code": "key_color_not_found"}, status_code=422)
 
 
 @app.exception_handler(RequestValidationError)
@@ -212,8 +218,9 @@ def list_history(cursor: str | None = Query(default=None, max_length=80), limit:
 
 
 @router.get("/history/batches")
-def list_history_batches(cursor: str | None = Query(default=None, max_length=80), limit: int = Query(default=30, ge=1, le=50)):
-    return history.batch_listing(cursor, limit)
+def list_history_batches(cursor: str | None = Query(default=None, max_length=80), limit: int = Query(default=30, ge=1, le=50),
+                         kind: Literal["png", "sds"] | None = None):
+    return history.batch_listing(cursor, limit, kind)
 
 
 @router.get("/history/batches/{batch_id}")
@@ -250,16 +257,12 @@ def render(data: m.PngRender, response: Response):
 
 
 def render_png(data, pending, timings):
-    queued = perf_counter()
-    with compute_lock:
-        timings["queue"] = perf_counter() - queued
-        # Reuse exactly the bytes rendered. Avoid a second S3 download for each
-        # colour, and never save a different source if the upload gets replaced.
-        reading = perf_counter()
-        source_data = storage.read_bytes(data.template_token) if data.template_token else None
-        timings["source"] = perf_counter() - reading
-        result = png.render(data, source_data=source_data, output_store=pending.store, timings=timings)
-        if data.template_token:
+    reading = perf_counter()
+    source_data = storage.read_bytes(data.template_token) if data.template_token else None
+    timings["source"] = perf_counter() - reading
+    result = png.render(data, source_data=source_data, output_store=pending.store, timings=timings, compute_lock=compute_lock)
+    if data.template_token and data.save_reference:
+        with compute_lock:
             try:
                 result["auto_saved_template"] = preferences.save_generated_reference(data, image_data=source_data)
             except Exception as exc:
@@ -270,7 +273,6 @@ def render_png(data, pending, timings):
                 warning = f"Референс не збережено автоматично: {reason} Фото згенеровано; повторіть генерацію або збережіть шаблон у налаштуваннях."
                 result["reference_save_warning"] = warning
                 result["warnings"].append(warning)
-        del source_data
     return result
 
 

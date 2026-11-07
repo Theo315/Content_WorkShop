@@ -56,12 +56,37 @@ def test_history_pagination_retention_and_auth(client, monkeypatch):
     assert client.get("/api/history?limit=1000").status_code == 422
     assert client.get("/api/history?cursor=../../bad").status_code == 400
     assert client.get("/api/history/bad").status_code == 400
-    monkeypatch.setattr(history, "now", lambda: base + 31 * 86400)
+    monkeypatch.setattr(history, "now", lambda: base + 8 * 86400)
     assert client.get("/api/history").json()["items"] == []
     assert client.get("/api/history/" + ids[0]).status_code == 410
     monkeypatch.setenv("APP_PASSWORD", "long-history-password")
     assert client.get("/api/history").status_code == 401
     assert client.get("/api/history/" + ids[0]).status_code == 401
+
+
+def test_seven_day_cutoff_applies_to_old_records_and_category_pages(client, monkeypatch):
+    base = history.now()
+    monkeypatch.setattr(history, "now", lambda: base - 8 * 86400)
+    old, _ = make_record("old", dict(batch_id=str(uuid.uuid4()), batch_index=0, batch_size=1))
+    # Records from before the rollout still contain the original 30-day expiry.
+    manifest = storage.local_root() / (history.PREFIX + old["history_id"] + ".json")
+    value = json.loads(manifest.read_text(encoding="utf-8"))
+    value["expires_at"] = value["created_at"] + 30 * 86400
+    manifest.write_text(json.dumps(value), encoding="utf-8")
+    monkeypatch.setattr(history, "now", lambda: base)
+    make_record("photo")
+    for kind in ("sds", "edit"):
+        file = storage.save_bytes(b"pdf", kind + ".pdf", "application/pdf")
+        history.record(kind, kind, {"file": file}, {})
+    photos = client.get("/api/history/batches?kind=png&limit=1").json()
+    assert photos["retention_days"] == 7
+    assert [batch["kind"] for batch in photos["items"]] == ["png"]
+    assert photos["next_cursor"] is None
+    documents = client.get("/api/history/batches?kind=sds&limit=1").json()
+    assert documents["next_cursor"]
+    more = client.get("/api/history/batches", params={"kind": "sds", "limit": 1, "cursor": documents["next_cursor"]}).json()
+    assert {documents["items"][0]["kind"], more["items"][0]["kind"]} == {"sds", "edit"}
+    assert client.get("/api/history/" + old["history_id"]).status_code == 410
 
 
 def test_generation_records_history_automatically(client):

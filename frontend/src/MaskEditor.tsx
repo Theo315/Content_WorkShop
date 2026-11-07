@@ -276,13 +276,13 @@ export default function MaskEditor({
             >
               {!ZOOM_PRESETS.includes(zoom) && <option value={zoom}>{Math.round(zoom * 100)}%</option>}
               {ZOOM_PRESETS.map(value => <option key={value} value={value}>
-                {value === 1 ? "Вписати" : `${Math.round(value * 100)}%`}
+                {value === 1 ? "Початковий" : `${Math.round(value * 100)}%`}
               </option>)}
             </select>
           </label>
           <button aria-label="Віддалити фото" disabled={zoom <= MIN_MASK_ZOOM} onClick={() => changeZoom(zoom / 1.2)}><Minus size={15} /></button>
           <button aria-label="Наблизити фото" disabled={zoom >= MAX_MASK_ZOOM} onClick={() => changeZoom(zoom * 1.2)}><Plus size={15} /></button>
-          <button onClick={fitView}>Вписати</button>
+          <button onClick={fitView}>Скинути масштаб</button>
           <button
             onClick={() => {
               mask.current.getContext("2d")!.fillStyle = "#000";

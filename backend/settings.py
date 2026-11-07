@@ -9,6 +9,7 @@ ASSETS = ROOT / "assets"
 MAX_UPLOAD = 25 * 1024 * 1024
 MAX_PIXELS = 8_000_000
 MAX_ITEMS = 200
+HISTORY_DAYS = 7
 IS_VERCEL = bool(os.getenv("VERCEL"))
 
 

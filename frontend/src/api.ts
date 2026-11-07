@@ -1,3 +1,7 @@
+export class ApiError extends Error {
+  constructor(message: string, public code?: string) { super(message); }
+}
+
 export async function request<T>(
   path: string,
   options?: RequestInit,
@@ -6,12 +10,13 @@ export async function request<T>(
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     const detail = body?.detail ?? body?.error;
-    throw new Error(
+    throw new ApiError(
       typeof detail === "string"
         ? detail
         : response.status === 401
           ? "Потрібен вхід. Перевірте пароль доступу."
           : `Помилка сервера (${response.status}). Спробуйте ще раз.`,
+      body?.code,
     );
   }
   return response.json() as Promise<T>;

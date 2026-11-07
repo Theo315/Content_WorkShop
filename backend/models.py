@@ -130,6 +130,7 @@ class PngRender(TemplateInput, BatchMetadata):
     lightness_mode: Literal["match", "keep"] = "match"
     feather: float = Field(default=1.2, ge=0, le=10)
     draw_plate: bool = True
+    save_reference: bool = True
 
 class Mask(TemplateInput):
     kind: Literal["car", "marker"] = "car"
