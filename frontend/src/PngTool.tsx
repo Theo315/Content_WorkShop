@@ -344,9 +344,9 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
         setPreviewMode("result");
       }
       for (let index = 0; index < batch.length && !cancelled.current;) {
-        // Persist a custom source on the first successful image before the other
-        // requests start. Two in flight overlap storage with image processing.
-        const size = customRef && index === 0 ? 1 : 2;
+        // Show the first image as soon as it is ready. Subsequent pairs reuse the
+        // prepared template and overlap storage with image processing.
+        const size = index === 0 ? 1 : 2;
         const group = batch.slice(index, index + size);
         setStatus(`Генеруємо ${group.map(color => color.code).join(", ")} · ${index + 1}–${index + group.length} з ${batch.length}`);
         const responses = await Promise.allSettled(group.map((color, offset) => renderColor(color, index + offset)));

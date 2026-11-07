@@ -18,7 +18,7 @@ from vendor.hexph.hexph.masking import ChromaKeySegmenter, FloodSegmenter, GrabC
 from vendor.hexph.hexph.recolor import RecolorOptions, prepare_weight, recolor_image, color_accuracy
 from vendor.hexph.hexph.plate_text import detect_plate, draw_plate_text, sample_plate_background, plate_guard_mask
 from .settings import ASSETS, MAX_PIXELS, MAX_ITEMS
-from . import storage, preferences
+from . import storage, preferences, settings
 
 cv2.setNumThreads(1)
 TEMPLATES = {
@@ -166,11 +166,14 @@ def prepare_render(image_data, car_data, marker_data, key_color, plate_box, feat
 
 
 def render(request, *, source_data=None, output_store=None, timings=None, compute_lock=None):
+    reading = perf_counter()
+    inputs = render_inputs(request, source_data)
     queued = perf_counter()
     with compute_lock or nullcontext():
         if timings is not None:
+            timings["read"] = queued - reading
             timings["queue"] = perf_counter() - queued
-        result, file_data, preview_data = render_content(request, source_data, timings)
+        result, file_data, preview_data = render_content(request, inputs, timings)
     uploading = perf_counter()
     if output_store:
         file, preview = output_store(file_data, preview_data)
@@ -181,11 +184,27 @@ def render(request, *, source_data=None, output_store=None, timings=None, comput
     return dict(file=file, preview=preview, **result)
 
 
-def render_content(request, source_data, timings):
-    started = perf_counter()
+@lru_cache(maxsize=6)
+def read_batch_template_file(batch_id, bucket, key, name, size, content_type):
+    # Library objects have unique keys and are immutable. Writable temporary
+    # uploads continue through the ordinary token-checked read path.
+    return storage.read_bytes(storage.make_ref(key, name, size, content_type)["token"])
+
+
+def render_inputs(request, source_data):
     saved = preferences.load()
-    image_data = source_data if source_data is not None else template_data(request.template_id, request.template_token, saved)
     custom = bool(request.template_token)
+    paths = template_paths(request.template_id) if request.template_id in TEMPLATES and not custom else None
+    entry = preferences.car(request.template_id, saved) if request.template_id and not custom and not paths else None
+
+    def library_bytes(value):
+        if request.batch_id and settings.storage_mode() == "s3" and value["size"] <= 12 * 1024 * 1024:
+            return read_batch_template_file(request.batch_id, storage.bucket(), value["key"], value["name"],
+                                            value["size"], value["content_type"])
+        return storage.read_bytes(storage.make_ref(**value)["token"])
+
+    if source_data is None:
+        source_data = library_bytes(entry["image"]) if entry else template_data(request.template_id, request.template_token, saved)
     raw_config = (template_config(request.template_id, saved) if request.template_id and not custom else {})
     if request.config is not None:
         raw_config.update(request.config.model_dump(exclude_unset=True))
@@ -197,18 +216,23 @@ def render_content(request, source_data, timings):
         text_color=tuple(raw_config.get("text_color", [20, 20, 20])),
         plate_bg_color=tuple(raw_config["plate_bg_color"]) if isinstance(raw_config.get("plate_bg_color"), (list, tuple)) else None,
     )
-    paths = template_paths(request.template_id) if request.template_id in TEMPLATES and not custom else None
-    entry = preferences.car(request.template_id, saved) if request.template_id and not custom and not paths else None
     def mask_data(role, token, index):
         if token:
             return storage.read_bytes(token)
         if paths:
             return paths[index].read_bytes()
         if entry and entry.get(role):
-            return storage.read_bytes(storage.make_ref(**entry[role])["token"])
+            return library_bytes(entry[role])
         return None
     car_data = mask_data("car_mask", request.car_mask_token, 1)
     marker_data = mask_data("marker_mask", request.marker_mask_token, 2)
+    template_name = (TEMPLATES[request.template_id]["name"] if paths else
+                     entry["name"] if entry else raw_config.get("model_name") or "Власний PNG")
+    return source_data, car_data, marker_data, config, raw_config, template_name
+
+
+def render_content(request, inputs, timings):
+    image_data, car_data, marker_data, config, raw_config, template_name = inputs
     loaded = perf_counter()
     options = RecolorOptions(lightness_mode=request.lightness_mode, feather=request.feather)
     image, alpha, weights, plate, has_marker = prepare_render(
@@ -244,9 +268,7 @@ def render_content(request, source_data, timings):
     preview_data = (encode(preview_img, preview_alpha), f"{code}-preview.png", "image/png")
     encoded = perf_counter()
     if timings is not None:
-        timings.update(read=loaded - started, process=processed - loaded, encode=encoded - processed)
-    template_name = (TEMPLATES[request.template_id]["name"] if request.template_id in TEMPLATES and not custom
-        else entry["name"] if entry else raw_config.get("model_name") or "Власний PNG")
+        timings.update(process=processed - loaded, encode=encoded - processed)
     return dict(metrics=metrics, warnings=warnings, template_name=template_name, plate_text=label), file_data, preview_data
 
 
