@@ -1,12 +1,19 @@
 .png-grid {
-  --png-image-height: max(280px, calc(100dvh - 245px));
-  grid-template-columns: minmax(0, 1fr) minmax(240px, min(49%, calc(var(--png-image-height) * var(--png-aspect, 1))));
+  --png-gap: clamp(16px, 2vw, 30px);
+  --png-workspace-height: calc(100dvh - 124px);
+  --png-template-height: max(280px, calc(var(--png-workspace-height) - 76px));
+  --png-image-height: var(--png-template-height);
+  --png-column-width: min(clamp(500px, var(--png-template-height), 580px), calc((100% - var(--png-gap)) / 2));
+  grid-template-columns: minmax(0, var(--png-column-width)) minmax(0, min(var(--png-column-width), calc(var(--png-template-height) * var(--png-aspect, 1))));
+  gap: var(--png-gap);
+  justify-content: center;
+  height: auto;
 }
 .png-grid[data-preview="result"] { --png-image-height: max(230px, calc(100dvh - 355px)); }
 .png-grid .form-column { container-type: inline-size; }
 .png-grid .form-column fieldset { gap: 14px; }
 .png-grid .form-column .panel-header { min-height: 28px; margin-bottom: 10px; }
-.png-source .panel-header button { min-height: 28px; padding: 4px 7px; font-size: 11px; }
+.png-grid .form-column .png-source .panel-header { min-height: 0; }
 .png-source-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(124px, 1fr); gap: 10px; align-items: end; }
 .png-source-row > .field { margin: 0; }
 .png-source-row .upload,
@@ -28,7 +35,8 @@
   max-height: var(--png-image-height);
 }
 .png-grid .template-preview > .empty-preview { border: 1px dashed var(--border); border-radius: var(--radius); }
-.png-grid .png-colors textarea { min-height: 144px; }
+.png-grid .png-colors textarea { min-height: 170px; }
+.png-grid .png-colors .field { margin-bottom: 6px; }
 .png-grid .png-colors .swatches { max-height: 80px; }
 .png-controls {
   display: grid;
@@ -39,6 +47,10 @@
   border-top: 1px solid var(--border);
 }
 .png-grid .png-colors { border-top: 1px solid var(--border); padding-top: 12px; }
+.png-options { min-width: 0; }
+.png-mask { margin-bottom: 12px; }
+.png-mask > button { width: 100%; min-height: 28px; padding: 4px 8px; justify-content: flex-start; font-size: 12px; }
+.png-mask .mask-ready { margin-left: auto; }
 .png-brand {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -47,11 +59,10 @@
 }
 .png-brand .check-label { margin: 0; }
 .png-options .hint + .png-brand { margin-top: 10px; }
-.png-options .timestamp-fields { padding-top: 10px; border: 0; }
-.png-options .timestamp-fields > .check-label:last-child { margin: 0; }
-.png-options .timestamp-grid { display: flex; flex-wrap: wrap; }
-.png-options .timestamp-grid > .field:first-child { flex: 1.7 1 170px; }
-.png-options .timestamp-grid > .field:last-child { flex: 1 1 100px; }
+.png-grid .timestamp-fields > .check-label:last-child { margin: 0; }
+.png-grid .timestamp-grid { display: flex; flex-wrap: wrap; }
+.png-grid .timestamp-grid > .field:first-child { flex: 1.7 1 170px; }
+.png-grid .timestamp-grid > .field:last-child { flex: 1 1 100px; }
 .mask-fallback {
   margin-top: 12px;
   display: flex;
@@ -119,17 +130,25 @@
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
-@container (min-width: 540px) {
+@container (min-width: 460px) {
   .png-controls { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
   .png-grid .png-colors { border-top: 0; padding-top: 0; }
 }
 @media (min-width: 701px) and (min-height: 540px) {
-  .png-grid { grid-template-rows: minmax(0, 1fr); }
-  .png-grid .form-column { height: auto; max-height: 100%; align-self: start; }
+  .png-grid .form-column {
+    /* Let the preview set the desktop row height while the form can scroll. */
+    container-type: size;
+    height: auto;
+    min-height: min(590px, var(--png-workspace-height));
+  }
+  .png-grid .preview-column { height: auto; max-height: var(--png-workspace-height); align-self: start; }
   .png-grid .form-scroll { margin-inline: -5px; padding-inline: 5px; scrollbar-gutter: auto; }
+  @container (min-width: 460px) {
+    .png-grid .png-colors textarea { height: clamp(170px, calc(100cqh - 350px), 300px); }
+  }
 }
 @media (max-width: 700px) {
-  .png-grid { grid-template-columns: minmax(0, 1fr); }
+  .png-grid { grid-template-columns: minmax(0, 1fr); gap: 20px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .template-picker-popover:popover-open, .template-picker-preview { animation: none; }

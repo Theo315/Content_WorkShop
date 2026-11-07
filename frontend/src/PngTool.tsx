@@ -374,9 +374,7 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
       <div className="form-column">
         <div className="form-scroll">
         <fieldset disabled={busy}>
-          <Panel title="Шаблон" className="png-source" action={source && <button type="button" onClick={() => void autoMask()}>
-            <Sparkles size={15} />Автомаска{car && <Check size={14} aria-label="Маска готова" />}
-          </button>}>
+          <Panel title="Шаблон" className="png-source">
             <div className="png-source-row">
               <TemplatePicker templates={templates} selected={selected} onChoose={choose} disabled={busy} />
               <Upload label="Власний PNG" accept="image/png,.png" file={custom} onFile={setTemplate} compact />
@@ -385,53 +383,59 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
               <Check size={14} />{savedReference.created ? "Референс збережено" : "Референс уже збережений"}
             </p>}
             {referenceWarning && <p className="notice" role="alert">{referenceWarning}</p>}
-            {source && maskFallback && <div className="mask-fallback">
-              <Field label="Інший ключовий HEX">
-                <input value={fallbackKey} placeholder="#1E9E52" onChange={event => setFallbackKey(event.target.value)} />
-              </Field>
-              <button type="button" disabled={!/^#?[0-9a-f]{6}$/i.test(fallbackKey.trim())}
-                onClick={() => void autoMask(fallbackKey.trim())}>Застосувати HEX</button>
-              <button type="button" onClick={() => setEditor("car")}><Paintbrush size={15} />Маска кузова</button>
-              <button type="button" onClick={() => setEditor("marker")}><Paintbrush size={15} />Маска маркера</button>
-            </div>}
           </Panel>
           <div className="png-controls">
-            <Panel title={source ? "Номерний знак" : "Параметри"} className="plate-options png-options" action={source &&
-              <button onClick={() => setEditor("plate")}><Crop size={14} />{config.plate_box ? "Область" : "Виділити"}</button>
-            }>
-              {source && <>
-                <label className="check-label">
-                  <input type="checkbox" checked={plate} onChange={e => setPlate(e.target.checked)} />
-                  Змінювати напис
-                </label>
-                {plate ? <>
-                  <Field label="Що писати на номері">
-                    <select value={config.plate_text_mode ?? "brand_code"} onChange={e => setConfig({ ...config, plate_text_mode: e.target.value as PlateTextMode })}>
-                      <option value="brand_code">Бренд + код</option>
-                      <option value="code">Лише код</option>
-                      <option value="brand">Лише бренд · без коду</option>
-                      <option value="custom">Власний текст</option>
-                      <option value="blank">Порожній номер</option>
-                    </select>
+            <div className="png-options">
+              {source && <div className="png-mask">
+                <button type="button" onClick={() => void autoMask()}>
+                  <Sparkles size={15} />Автомаска{car && <Check className="mask-ready" size={14} aria-label="Маска готова" />}
+                </button>
+                {maskFallback && <div className="mask-fallback">
+                  <Field label="Інший ключовий HEX">
+                    <input value={fallbackKey} placeholder="#1E9E52" onChange={event => setFallbackKey(event.target.value)} />
                   </Field>
-                  {config.plate_text_mode === "custom" && <Field label="Власний напис" hint="Саме цей текст, без автоматичного додавання бренду чи коду.">
-                    <input value={config.plate_text ?? ""} maxLength={200} placeholder="Наприклад: MY PAINT" onChange={e => setConfig({ ...config, plate_text: e.target.value })} />
-                  </Field>}
-                  {!config.plate_box && <p className="hint">Виділіть область номерного знака. Текст автоматично впишеться в неї.</p>}
-                </> : <p className="hint">Залишиться оригінальний напис із шаблону.</p>}
-              </>}
-              <div className="png-brand">
-                <label className="check-label"><input type="checkbox" checked={useBrand}
-                  disabled={!plate || config.plate_text_mode === "custom"}
-                  onChange={event => setConfig(previous => ({ ...previous, plate_text_mode: event.target.checked
-                    ? previous.plate_text_mode === "blank" ? "brand" : "brand_code"
-                    : previous.plate_text_mode === "brand" ? "blank" : "code" }))} />Бренд</label>
-                <input aria-label="Бренд на номері" value={config.brand_name} maxLength={120}
-                  disabled={!plate || !useBrand}
-                  onChange={event => setConfig(previous => ({ ...previous, brand_name: event.target.value }))} />
-              </div>
-              <TimestampFields value={timestamp} onChange={setTimestamp} />
-            </Panel>
+                  <button type="button" disabled={!/^#?[0-9a-f]{6}$/i.test(fallbackKey.trim())}
+                    onClick={() => void autoMask(fallbackKey.trim())}>Застосувати HEX</button>
+                  <button type="button" onClick={() => setEditor("car")}><Paintbrush size={15} />Маска кузова</button>
+                  <button type="button" onClick={() => setEditor("marker")}><Paintbrush size={15} />Маска маркера</button>
+                </div>}
+              </div>}
+              <Panel title="Номерний знак" className="plate-options" action={source &&
+                <button onClick={() => setEditor("plate")}><Crop size={14} />{config.plate_box ? "Область" : "Виділити"}</button>
+              }>
+                {source && <>
+                  <label className="check-label">
+                    <input type="checkbox" checked={plate} onChange={e => setPlate(e.target.checked)} />
+                    Змінювати напис
+                  </label>
+                  {plate ? <>
+                    <Field label="Що писати на номері">
+                      <select value={config.plate_text_mode ?? "brand_code"} onChange={e => setConfig({ ...config, plate_text_mode: e.target.value as PlateTextMode })}>
+                        <option value="brand_code">Бренд + код</option>
+                        <option value="code">Лише код</option>
+                        <option value="brand">Лише бренд · без коду</option>
+                        <option value="custom">Власний текст</option>
+                        <option value="blank">Порожній номер</option>
+                      </select>
+                    </Field>
+                    {config.plate_text_mode === "custom" && <Field label="Власний напис" hint="Саме цей текст, без автоматичного додавання бренду чи коду.">
+                      <input value={config.plate_text ?? ""} maxLength={200} placeholder="Наприклад: MY PAINT" onChange={e => setConfig({ ...config, plate_text: e.target.value })} />
+                    </Field>}
+                    {!config.plate_box && <p className="hint">Виділіть область номерного знака. Текст автоматично впишеться в неї.</p>}
+                  </> : <p className="hint">Залишиться оригінальний напис із шаблону.</p>}
+                </>}
+                <div className="png-brand">
+                  <label className="check-label"><input type="checkbox" checked={useBrand}
+                    disabled={!plate || config.plate_text_mode === "custom"}
+                    onChange={event => setConfig(previous => ({ ...previous, plate_text_mode: event.target.checked
+                      ? previous.plate_text_mode === "blank" ? "brand" : "brand_code"
+                      : previous.plate_text_mode === "brand" ? "blank" : "code" }))} />Бренд</label>
+                  <input aria-label="Бренд на номері" value={config.brand_name} maxLength={120}
+                    disabled={!plate || !useBrand}
+                    onChange={event => setConfig(previous => ({ ...previous, brand_name: event.target.value }))} />
+                </div>
+              </Panel>
+            </div>
             <Panel
               title="Кольори"
               className="png-colors"
@@ -510,6 +514,7 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
               )}
             </Panel>
           </div>
+          <TimestampFields value={timestamp} onChange={setTimestamp} />
         </fieldset>
         <ErrorMessage message={error} />
         {busy && <Busy text={status} progress={progress} />}
