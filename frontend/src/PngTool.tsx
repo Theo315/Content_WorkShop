@@ -434,6 +434,7 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
                     disabled={!plate || !useBrand}
                     onChange={event => setConfig(previous => ({ ...previous, brand_name: event.target.value }))} />
                 </div>
+                <TimestampFields value={timestamp} onChange={setTimestamp} />
               </Panel>
             </div>
             <Panel
@@ -514,7 +515,6 @@ export default function PngTool({ maxUpload, settingsVersion, onTemplatesChanged
               )}
             </Panel>
           </div>
-          <TimestampFields value={timestamp} onChange={setTimestamp} />
         </fieldset>
         <ErrorMessage message={error} />
         {busy && <Busy text={status} progress={progress} />}
