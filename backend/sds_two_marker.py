@@ -23,6 +23,11 @@ KIT = fitz.Rect(180.6378, 157, 548.6378, 177)
 PAGE = re.compile(r"(Paint|Clear varnish) - page (\d+)/(\d+) \| Document page (\d+)/(\d+)")
 HEADING = re.compile(r"Asturcolor (.+) - 2 x 12 ml touch-up marker kit")
 DATE = re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
+TECHNICAL_LINE = re.compile(
+    rf"Technical source: {DATE.pattern}"
+    rf"(?:; revised {DATE.pattern}; v\d+|, v\d+ \| SDS reviewed: {DATE.pattern})"
+    rf" \| Document update: (?P<updated>{DATE.pattern})"
+)
 
 
 def text(page, rect):
@@ -56,6 +61,7 @@ def analyse(doc):
     variant = identity[1]
     fields, protected, dates = [], [], []
     updated = None
+    component_sources = {}
     for index, page in enumerate(doc):
         if abs(page.rect.width - 595.276) > 2 or abs(page.rect.height - 841.89) > 2:
             raise SDSError("Двокомпонентний SDS повинен мати сторінки A4.")
@@ -66,13 +72,15 @@ def analyse(doc):
             raise SDSError(f"Непослідовна нумерація компонентів SDS на сторінці {index+1}.")
         expected_subtitle = ("Paint marker" if paint else "Clear-varnish marker") + " - 12 ml | Kit: 12 ml paint + 12 ml clear varnish"
         technical = text(page, TECHNICAL)
-        prefix = "Technical source: " + ("25/04/2019; revised 19/11/2021; v2" if paint else "17/12/2018; revised 11/07/2024; v3") + " | Document update: "
-        if text(page, SUBTITLE) != expected_subtitle or not technical.startswith(prefix) or not DATE.fullmatch(technical[len(prefix):]):
+        dates_match = TECHNICAL_LINE.fullmatch(technical)
+        if text(page, SUBTITLE) != expected_subtitle or not dates_match:
             raise SDSError(f"Невідповідна структура компонента або дат SDS на сторінці {index+1}.")
         if updated is None:
-            updated = technical[len(prefix):]
-        if technical[len(prefix):] != updated:
+            updated = dates_match["updated"]
+        if dates_match["updated"] != updated:
             raise SDSError("Дати оновлення двокомпонентного SDS не узгоджені.")
+        if component_sources.setdefault(name, technical) != technical:
+            raise SDSError(f"Джерело або дати компонента SDS відрізняються на сторінці {index+1}.")
         footer = f"Asturcolor | {variant} | 12 ml per component"
         if text(page, HEADER) != heading or text(page, FOOTER) != footer:
             raise SDSError(f"Неузгоджені назви в колонтитулах SDS на сторінці {index+1}.")

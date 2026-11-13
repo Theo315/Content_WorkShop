@@ -6,7 +6,7 @@ from backend import sds, sds_two_marker as two, storage
 from tests.test_pipeline import client
 
 
-def fixture_pdf(paint=2, varnish=2):
+def fixture_pdf(paint=2, varnish=2, *, reviewed_paint=False):
     variant = "Volkswagen LC9A PURE WHITE"
     kit = "Kit identifier: Asturcolor paint and clear varnish kit for Volkswagen (LC9A PURE WHITE)"
     with fitz.open() as doc:
@@ -18,6 +18,8 @@ def fixture_pdf(paint=2, varnish=2):
             subtitle = ("Paint marker" if is_paint else "Clear-varnish marker") + " - 12 ml | Kit: 12 ml paint + 12 ml clear varnish"
             page.insert_text((36,88.6037),subtitle,fontsize=7.6)
             technical = ("25/04/2019; revised 19/11/2021; v2" if is_paint else "17/12/2018; revised 11/07/2024; v3")
+            if is_paint and reviewed_paint:
+                technical = "25/04/2019, v2 | SDS reviewed: 29/09/2026"
             page.insert_text((36,104.00342),f"Technical source: {technical} | Document update: 30/10/2026",fontsize=7)
             page.insert_text((36,799.20349),f"{component} - page {position}/{count} | Document page {index+1}/{paint+varnish}",fontsize=7.2)
             page.insert_text((36,817.00342),f"Asturcolor | {variant} | 12 ml per component",fontsize=7)
@@ -90,7 +92,7 @@ def test_bad_pagination_last_page_damage_and_missing_identity_rejected():
 
 
 def test_api_settings_batch_previews_and_timestamp(client):
-    source=fixture_pdf(24,19)
+    source=fixture_pdf(24,19,reviewed_paint=True)
     reference=storage.save_bytes(source,"two-component-reference.pdf","application/pdf")
     response=client.put("/api/settings/sds/reference",json={"token":reference["token"]})
     assert response.status_code==200,response.text
@@ -105,6 +107,10 @@ def test_api_settings_batch_previews_and_timestamp(client):
         assert "p25.png" in result["previews"][2]["name"]
         download=client.get(result["file"]["url"])
         sds.validate_output(download.content,source,product["title"],item=product)
+        with sds.open_pdf(download.content) as generated, sds.open_pdf(source) as reference_doc:
+            assert [two.text(page, two.TECHNICAL) for page in generated] == [
+                two.text(page, two.TECHNICAL) for page in reference_doc
+            ]
     grouped=client.get("/api/history/batches/"+batch_id).json()
     assert grouped["count"]==2 and not grouped["partial"]
     assert all(entry["last_written_at"]=="2026-11-04T18:43:00+02:00" for entry in grouped["items"])
