@@ -84,7 +84,7 @@ export default function History({ active, mode }: { active: boolean; mode: "png"
     <ErrorMessage message={error} />
     {busy && <Busy text="Завантажуємо пакети…" />}
     <div className="history-layout">
-      <Panel title="Пакети" action={<span className="count">{filtered.length}</span>}>
+      <Panel title="Пакети" action={!error && <span className="count">{filtered.length}</span>}>
         <div className="history-list">{filtered.map(batch => <button key={batch.id}
           className={`history-row ${selected?.id === batch.id ? "active" : ""}`} aria-pressed={selected?.id === batch.id}
           onClick={() => void select(batch)}>
@@ -97,8 +97,8 @@ export default function History({ active, mode }: { active: boolean; mode: "png"
           </time>
         </button>)}
           {!busy && !filtered.length && <div className="history-empty"><Clock3 size={32} />
-            <h3>{batches.length ? "Збігів немає" : "Поки немає пакетів"}</h3>
-            <p>{batches.length ? "Змініть пошук або завантажте ще." : kind === "png" ? "Готові фото з’являться тут автоматично." : "Готові SDS та відредаговані PDF з’являться тут автоматично."}</p>
+            <h3>{error ? "Не вдалося завантажити історію" : batches.length ? "Збігів немає" : "Поки немає пакетів"}</h3>
+            <p>{error ? "Спробуйте оновити після відновлення доступу до сховища." : batches.length ? "Змініть пошук або завантажте ще." : kind === "png" ? "Готові фото з’являться тут автоматично." : "Готові SDS та відредаговані PDF з’являться тут автоматично."}</p>
           </div>}
         </div>
         {cursor && <><p className="hint">Пошук у {batches.length} завантажених пакетах.</p>

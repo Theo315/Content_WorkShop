@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 import hmac
 import logging
@@ -72,7 +73,22 @@ async def validation_error(request, exc):
 @app.exception_handler(ClientError)
 async def storage_error(request, exc):
     log.error("Object storage failure: %s", type(exc).__name__)
-    return JSONResponse({"detail": "Сховище недоступне. Перевірте налаштування S3/R2 та CORS."}, status_code=503)
+    if isinstance(exc, ClientError):
+        error = exc.response.get("Error", {})
+        code = error.get("Code", "")
+        message = error.get("Message", "").lower()
+        if code in ("download_cap_exceeded", "transaction_cap_exceeded") or (
+            code == "AccessDenied" and "cap exceeded" in message
+        ):
+            now = datetime.now(timezone.utc)
+            reset = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            return JSONResponse({
+                "detail": "Вичерпано денний ліміт Backblaze на завантаження або читання файлів. "
+                          "Ліміт поновлюється о 00:00 UTC (02:00 взимку / 03:00 влітку за Києвом).",
+                "code": "storage_daily_limit",
+                "retry_at": reset.isoformat(),
+            }, status_code=503, headers={"Retry-After": str(int((reset - now).total_seconds()) + 1)})
+    return JSONResponse({"detail": "Не вдалося отримати доступ до сховища. Спробуйте пізніше."}, status_code=503)
 
 
 @app.exception_handler(Exception)
