@@ -4,7 +4,6 @@ import type { FileRef } from "./api";
 import { zipTimestamp, TIMESTAMP_TIME_ZONE } from "./timestamps";
 
 type ArchiveResult = { file: FileRef; label: string; zipPath?: string; lastWrittenAt?: string; detail?: string; warnings?: string[]; metadata?: unknown };
-export const MAX_ARCHIVE_BYTES = 250 * 1024 * 1024;
 
 function uniquePath(raw: string, used: Set<string>) {
   const safe = raw.replace(/\\/g, "/").split("/")
@@ -19,8 +18,6 @@ function uniquePath(raw: string, used: Set<string>) {
 }
 export async function downloadResultArchive(items: ArchiveResult[], filename: string, includeReport = true) {
   if (!items.length) throw new Error("Пакет порожній.");
-  if (items.reduce((total, item) => total + item.file.size, 0) > MAX_ARCHIVE_BYTES)
-    throw new Error("Пакет перевищує 250 МБ. Завантажуйте файли окремо.");
   const archive = new JSZip(), used = new Set<string>(["generation-report.json"]);
   const archiveDate = zipTimestamp(new Date().toISOString());
   const report = [];
@@ -34,5 +31,5 @@ export async function downloadResultArchive(items: ArchiveResult[], filename: st
       timestamp_timezone: TIMESTAMP_TIME_ZONE, detail: item.detail, warnings: item.warnings, data: item.metadata });
   }
   if (includeReport) archive.file("generation-report.json", JSON.stringify(report, null, 2), { date: archiveDate });
-  download(await archive.generateAsync({ type: "blob" }), filename);
+  download(await archive.generateAsync({ type: "blob", streamFiles: true }), filename);
 }

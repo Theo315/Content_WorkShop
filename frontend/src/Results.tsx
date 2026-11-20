@@ -3,7 +3,7 @@ import { Download, FileCheck2, Package } from "lucide-react";
 import { downloadFile } from "./api";
 import type { FileRef } from "./api";
 import { Busy, ErrorMessage, Panel } from "./components";
-import { downloadResultArchive, MAX_ARCHIVE_BYTES } from "./exportArchive";
+import { downloadResultArchive } from "./exportArchive";
 
 export type Result = {
   file: FileRef;
@@ -158,21 +158,12 @@ export default function Results({
           {(items.length > 1 || forceArchive) && (
             <button
               className="full-width"
-              disabled={
-                busy ||
-                items.reduce((n, r) => n + r.file.size, 0) > MAX_ARCHIVE_BYTES
-              }
+              disabled={busy}
               onClick={zip}
             >
               <Package size={17} />
               {archiveLabel}
             </button>
-          )}
-          {items.reduce((n, r) => n + r.file.size, 0) > MAX_ARCHIVE_BYTES && (
-            <p className="notice">
-              Понад 250 МБ: завантажуйте файли окремо, щоб не перевантажувати
-              браузер.
-            </p>
           )}
         </>
       )}
